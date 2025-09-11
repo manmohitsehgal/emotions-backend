@@ -1,0 +1,34 @@
+# JetBrains Rider
+.idea/
+*.sln.iml
+*.suo
+*.user
+*.userprefs
+
+# Build artifacts
+[Bb]in/
+[Oo]bj/
+
+# Rider's solution cache
+.Rider/
+
+# Visual Studio (if also used or generated)
+.vs/
+
+# Unity specific (if applicable)
+/[Ll]ibrary/
+/[Tt]emp/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+
+# NuGet packages
+packages/
+
+# Local settings and temporary files
+*.log
+*.pid
+*.bak
+*.swp
+*.~
