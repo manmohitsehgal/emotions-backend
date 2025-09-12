@@ -27,6 +27,7 @@
 packages/
 
 # Local settings and temporary files
+*.zip
 *.log
 *.pid
 *.bak

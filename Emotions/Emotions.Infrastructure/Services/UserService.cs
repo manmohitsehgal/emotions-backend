@@ -113,6 +113,43 @@ public sealed class UserService : IUserService
         return null;
     }
 
+    public async Task<Guid> UpsertFromAuth0Async(string sub, string? email, string? name)
+    {
+        var now = DateTime.UtcNow;
+
+        // 1) Try by sub (fast path)
+        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.ExternalId == sub);
+
+        // 2) Fallback by email (if you treat email as unique identity)
+        if (user is null && !string.IsNullOrWhiteSpace(email))
+            user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email == email);
+
+        if (user is null)
+        {
+            user = new User
+            {
+                Id = Guid.NewGuid(),
+                ExternalId = sub,
+                Email = email,
+                Name = name,
+                Username = await GenerateUniqueUsernameAsync(email, name), // see helper below
+                HasCompletedOnboarding = false,
+                CreatedAt = now,
+            };
+            _dbContext.Users.Add(user);
+        }
+        else
+        {
+            // Refresh fields without nuking non-null values
+            if (string.IsNullOrWhiteSpace(user.ExternalId)) user.ExternalId = sub;
+            if (!string.IsNullOrWhiteSpace(email)) user.Email = email;
+            if (!string.IsNullOrWhiteSpace(name)) user.Name = name;
+        }
+
+        await _dbContext.SaveChangesAsync();
+        return user.Id;
+    }
+
     private static string Slugify(string input)
     {
         if (string.IsNullOrWhiteSpace(input)) return "user";
@@ -120,5 +157,32 @@ public sealed class UserService : IUserService
         s = Regex.Replace(s, @"[^\p{Ll}\p{Lu}\p{Nd}]+", "-");
         s = Regex.Replace(s, @"-+", "-").Trim('-');
         return string.IsNullOrEmpty(s) ? "user" : s;
+    }
+
+    private async Task<string> GenerateUniqueUsernameAsync(string? email, string? name)
+    {
+        // seed from email prefix or name; fallback to short guid
+        string baseSlug =
+            (!string.IsNullOrWhiteSpace(email) ? email.Split('@')[0] :
+                !string.IsNullOrWhiteSpace(name) ? name.Replace(" ", "").ToLowerInvariant() :
+                "user") ?? "user";
+
+        baseSlug = new string(baseSlug.Where(char.IsLetterOrDigit).ToArray());
+        if (string.IsNullOrWhiteSpace(baseSlug)) baseSlug = "user";
+
+        string candidate = baseSlug;
+        int i = 0;
+        while (await _dbContext.Users.AnyAsync(u => u.Username == candidate))
+        {
+            i++;
+            candidate = $"{baseSlug}{i}";
+            if (i > 50)
+            {
+                candidate = $"user_{Guid.NewGuid():N}".Substring(0, 16);
+                break;
+            }
+        }
+
+        return candidate;
     }
 }

@@ -8,4 +8,5 @@ public interface IUserService
     Task<User> IdentifyAsync(string username, CancellationToken ct = default);
     Task<User> CompleteOnboardingAsync(bool analyticsOptIn, CancellationToken ct = default);
     Task<User> GetCurrentAsync(CancellationToken ct = default);
+    Task<Guid> UpsertFromAuth0Async(string sub, string? email, string? name);
 }
