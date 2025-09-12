@@ -1,5 +1,5 @@
-using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http.Headers;
+using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Emotions.Application.Interfaces;
@@ -66,8 +66,10 @@ builder.Services
             ValidateAudience = true,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
+
+            NameClaimType = "https://emotions.app/user_guid",
+
             ClockSkew = TimeSpan.FromSeconds(45),
-            NameClaimType = "name",
             RoleClaimType = "roles",
             // Auth0 commonly returns "at+jwt" for access tokens; keep both
             ValidTypes = new[] { "at+jwt", "JWT" }
@@ -117,14 +119,31 @@ builder.Services
                 return Task.CompletedTask;
             },
 
+            // OnTokenValidated = ctx =>
+            // {
+            //     if (ctx.SecurityToken is JwtSecurityToken t)
+            //     {
+            //         Console.WriteLine(
+            //             $"[Auth0] OK iss={t.Issuer} aud={string.Join(",", t.Audiences)} exp={t.ValidTo:u}");
+            //     }
+            //
+            //     return Task.CompletedTask;
+            // }
+
             OnTokenValidated = ctx =>
             {
-                if (ctx.SecurityToken is JwtSecurityToken t)
+                const string Key = "https://emotions.app/user_guid";
+                var guid = ctx.Principal?.FindFirst(Key)?.Value;
+
+                if (string.IsNullOrWhiteSpace(guid) || !Guid.TryParse(guid, out _))
                 {
-                    Console.WriteLine(
-                        $"[Auth0] OK iss={t.Issuer} aud={string.Join(",", t.Audiences)} exp={t.ValidTo:u}");
+                    ctx.Fail("Missing or invalid user GUID claim.");
+                    return Task.CompletedTask;
                 }
 
+                var id = (ClaimsIdentity)ctx.Principal!.Identity!;
+                if (id.FindFirst(ClaimTypes.NameIdentifier) is null)
+                    id.AddClaim(new Claim(ClaimTypes.NameIdentifier, guid));
                 return Task.CompletedTask;
             }
         };
