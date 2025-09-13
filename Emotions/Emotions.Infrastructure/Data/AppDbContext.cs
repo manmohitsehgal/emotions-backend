@@ -16,6 +16,8 @@ public class AppDbContext : DbContext
     public DbSet<JournalEntry> JournalEntries => Set<JournalEntry>();
     public DbSet<VoiceRoomMember> VoiceRoomMembers => Set<VoiceRoomMember>();
     public DbSet<VoiceRoomConnection> VoiceRoomConnections => Set<VoiceRoomConnection>();
+    public DbSet<Interest> Interests => Set<Interest>();
+    public DbSet<UserInterest> UserInterests => Set<UserInterest>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -106,6 +108,24 @@ public class AppDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(x => x.VoiceRoomId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<UserInterest>().HasKey(x => new { x.UserId, x.InterestId });
+        modelBuilder.Entity<Interest>().HasIndex(x => x.Slug).IsUnique();
+
+        // Seed a small catalog (optional)
+        modelBuilder.Entity<Interest>().HasData(new[]
+        {
+            new Interest { Id = 1, Name = "Stress", Slug = "stress" },
+            new Interest { Id = 2, Name = "Sleep", Slug = "sleep" },
+            new Interest { Id = 3, Name = "Relationships", Slug = "relationships" },
+            new Interest { Id = 4, Name = "Focus", Slug = "focus" },
+            new Interest { Id = 5, Name = "Self-esteem", Slug = "self-esteem" },
+            new Interest { Id = 6, Name = "Anxiety", Slug = "anxiety" },
+            new Interest { Id = 7, Name = "Depression", Slug = "depression" },
+            new Interest { Id = 8, Name = "Productivity", Slug = "productivity" },
+            new Interest { Id = 9, Name = "Habits", Slug = "habits" },
+            new Interest { Id = 10, Name = "Anger", Slug = "anger" },
         });
     }
 }
