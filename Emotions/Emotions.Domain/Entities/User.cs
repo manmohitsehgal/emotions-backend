@@ -37,6 +37,8 @@ public class User
     [ForeignKey("VoiceRoom")] public Guid? VoiceRoomId { get; set; }
     public VoiceRoom? VoiceRoom { get; set; }
 
+    public ICollection<UserInterest> UserInterests { get; set; } = new List<UserInterest>();
+
     // Onboarding metadata
     public bool HasCompletedOnboarding { get; set; }
     public string? OnboardingTemplate { get; set; }

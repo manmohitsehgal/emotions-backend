@@ -4,183 +4,218 @@ using Emotions.Application.Interfaces;
 using Emotions.Application.Interfaces.Auth;
 using Emotions.Domain.Entities;
 using Emotions.Infrastructure.Data;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.JsonWebTokens;
 
 namespace Emotions.Infrastructure.Services;
 
-public sealed class UserService : IUserService
+public class UserService : IUserService
 {
-    private readonly AppDbContext _dbContext;
-    private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly AppDbContext _db;
     private readonly IUserProvisioner _provisioner;
 
-    public UserService(AppDbContext db, IHttpContextAccessor httpContextAccessor, IUserProvisioner provisioner)
+    public UserService(AppDbContext db, IUserProvisioner provisioner)
     {
-        _dbContext = db;
-        _httpContextAccessor = httpContextAccessor;
+        _db = db;
         _provisioner = provisioner;
     }
 
-    public async Task<User> GetOrCreateAsync(CancellationToken ct = default)
+    public async Task<User?> TryGetByExternalIdAsync(ClaimsPrincipal principal, CancellationToken ct = default)
     {
-        var principal = GetPrincipalOrThrow();
+        var sub = principal.FindFirst("sub")?.Value
+                  ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
-        // OIDC (Auth0) path: use 'sub' as stable external id (e.g., "auth0|abc123")
-        var sub = principal.FindFirstValue(JwtRegisteredClaimNames.Sub)
-                  ?? principal.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(sub)) return null;
 
-        if (!string.IsNullOrWhiteSpace(sub) && !Guid.TryParse(sub, out _))
+        return Guid.TryParse(sub, out var guid)
+            ? await _db.Users.FindAsync(new object[] { guid }, ct)
+            : await _db.Users.SingleOrDefaultAsync(u => u.ExternalId == sub, ct);
+    }
+
+    public async Task<User> ProvisionFromClaimsAsync(ClaimsPrincipal principal, CancellationToken ct = default)
+    {
+        var existing = await TryGetByExternalIdAsync(principal, ct);
+        if (existing is not null) return existing;
+
+        try
         {
-            // Look up by ExternalId; create via provisioner if first-time login
-            var existing = await _dbContext.Users.SingleOrDefaultAsync(u => u.ExternalId == sub, ct);
-            if (existing is not null) return existing;
-
-            var created = await _provisioner.GetOrCreateFromClaimsAsync(principal, ct);
-            return created;
+            return await _provisioner.CreateFromClaimsAsync(principal, ct); // create-only
         }
-
-        // Legacy GUID path (older self-hosted tokens carried a GUID in a claim)
-        var guid = TryGetGuidFromClaims(principal)
-                   ?? throw new InvalidOperationException("User id claim is not a valid GUID or OIDC subject.");
-
-        var user = await _dbContext.Users.FindAsync([guid], ct);
-        if (user is not null) return user;
-
-        // Last-resort: create a minimal valid record for legacy GUID tokens
-        // Ensure Username is non-null and unique-ish
-        var username = $"user-{guid.ToString("N")[..8]}";
-        user = new User
+        catch (DbUpdateException)
         {
-            Id = guid,
-            ExternalId = guid.ToString(), // keeps a stable external reference for legacy
-            Username = username, // satisfies NOT NULL
-            CreatedAt = DateTime.UtcNow, // if your schema has a default, this is still fine
-            HasCompletedOnboarding = false
-        };
-
-        _dbContext.Users.Add(user);
-        await _dbContext.SaveChangesAsync(ct);
-        return user;
+            var after = await TryGetByExternalIdAsync(principal, ct);
+            if (after is not null) return after;
+            throw;
+        }
     }
 
-    public async Task<User> IdentifyAsync(string username, CancellationToken ct = default)
+    public async Task<User> RequireCurrentAsync(ClaimsPrincipal principal, CancellationToken ct = default)
     {
-        var user = await GetOrCreateAsync(ct);
-        user.Username = Slugify(username);
-        await _dbContext.SaveChangesAsync(ct);
-        return user;
+        return await TryGetByExternalIdAsync(principal, ct)
+               ?? throw new KeyNotFoundException("User not found.");
     }
 
-    public async Task<User> CompleteOnboardingAsync(bool analyticsOptIn, CancellationToken ct = default)
+    public async Task SetUsernameAsync(ClaimsPrincipal principal, string username, CancellationToken ct = default)
     {
-        var user = await GetOrCreateAsync(ct);
-        user.AnalyticsOptIn = analyticsOptIn;
+        var user = await RequireCurrentAsync(principal, ct);
+        var final = Slugify(username);
+
+        // ensure unique inside app
+        if (await _db.Users.AnyAsync(u => u.Username == final && u.Id != user.Id, ct))
+            final = await EnsureUniqueUsernameAsync(final, ct);
+
+        user.Username = final;
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task SetInterestsAsync(ClaimsPrincipal principal, IEnumerable<string> slugs,
+        CancellationToken ct = default)
+    {
+        var user = await RequireCurrentAsync(principal, ct);
+        await _db.Entry(user).Collection(u => u.UserInterests).LoadAsync(ct);
+
+        var normalized = slugs
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Select(s => s.Trim().ToLowerInvariant())
+            .Distinct()
+            .ToArray();
+
+        var interests = await _db.Interests
+            .Where(i => normalized.Contains(i.Slug))
+            .ToListAsync(ct);
+
+        // Optional: auto-create missing slugs
+        var missing = normalized.Except(interests.Select(i => i.Slug)).ToList();
+        foreach (var ms in missing)
+            interests.Add(new Interest { Slug = ms, Name = ms });
+
+        var desiredIds = interests.Select(i => i.Id).ToHashSet();
+        var currentIds = user.UserInterests.Select(ui => ui.InterestId).ToHashSet();
+
+        foreach (var ui in user.UserInterests.Where(ui => !desiredIds.Contains(ui.InterestId)).ToList())
+            _db.Remove(ui);
+
+        foreach (var id in desiredIds.Except(currentIds))
+            user.UserInterests.Add(new UserInterest { UserId = user.Id, InterestId = id });
+
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task CompleteOnboardingAsync(ClaimsPrincipal principal, bool? analyticsOptIn,
+        CancellationToken ct = default)
+    {
+        var user = await RequireCurrentAsync(principal, ct);
+
+        if (analyticsOptIn is not null)
+            user.AnalyticsOptIn = analyticsOptIn.Value;
+
         user.HasCompletedOnboarding = true;
-        await _dbContext.SaveChangesAsync(ct);
-        return user;
+        user.OnboardedAt ??= DateTime.UtcNow;
+
+        await _db.SaveChangesAsync(ct);
     }
 
-    public Task<User> GetCurrentAsync(CancellationToken ct = default)
-        => GetOrCreateAsync(ct);
-
-    // ---------- helpers ----------
-
-    private ClaimsPrincipal GetPrincipalOrThrow()
-    {
-        var p = _httpContextAccessor.HttpContext?.User;
-        if (p?.Identity == null || !p.Identity.IsAuthenticated)
-            throw new UnauthorizedAccessException("No authenticated user context.");
-        return p;
-    }
-
-    private static Guid? TryGetGuidFromClaims(ClaimsPrincipal principal)
-    {
-        var candidates = new[]
-        {
-            principal.FindFirstValue(ClaimTypes.NameIdentifier),
-            principal.FindFirstValue(JwtRegisteredClaimNames.Sub),
-            principal.FindFirst("uid")?.Value
-        };
-
-        foreach (var s in candidates)
-        {
-            if (!string.IsNullOrWhiteSpace(s) && Guid.TryParse(s, out var g))
-                return g;
-        }
-
-        return null;
-    }
+    // -------- helpers --------
 
     public async Task<Guid> UpsertFromAuth0Async(string sub, string? email, string? name)
     {
+        if (string.IsNullOrWhiteSpace(sub))
+            throw new ArgumentException("sub is required", nameof(sub));
+
         var now = DateTime.UtcNow;
 
-        // 1) Try by sub (fast path)
-        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.ExternalId == sub);
+        // 1) Try by external subject (Auth0 "sub")
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.ExternalId == sub);
 
-        // 2) Fallback by email (if you treat email as unique identity)
+        // 2) Optional fallback by email (only if you treat email as unique-ish)
         if (user is null && !string.IsNullOrWhiteSpace(email))
-            user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email == email);
+            user = await _db.Users.FirstOrDefaultAsync(u => u.Email == email);
 
         if (user is null)
         {
             user = new User
             {
                 Id = Guid.NewGuid(),
-                ExternalId = sub,
+                ExternalId = sub, // UNIQUE index recommended
                 Email = email,
                 Name = name,
-                Username = await GenerateUniqueUsernameAsync(email, name), // see helper below
+                Username = await GenerateUniqueUsernameAsync(email, name),
                 HasCompletedOnboarding = false,
                 CreatedAt = now,
             };
-            _dbContext.Users.Add(user);
+            _db.Users.Add(user);
         }
         else
         {
-            // Refresh fields without nuking non-null values
+            // Light refresh of known fields
             if (string.IsNullOrWhiteSpace(user.ExternalId)) user.ExternalId = sub;
             if (!string.IsNullOrWhiteSpace(email)) user.Email = email;
             if (!string.IsNullOrWhiteSpace(name)) user.Name = name;
         }
 
-        await _dbContext.SaveChangesAsync();
+        await _db.SaveChangesAsync();
         return user.Id;
     }
 
-    private static string Slugify(string input)
+    private async Task<string> GenerateUniqueUsernameAsync(string? email, string? name, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(input)) return "user";
-        var s = input.Trim().ToLowerInvariant();
-        s = Regex.Replace(s, @"[^\p{Ll}\p{Lu}\p{Nd}]+", "-");
-        s = Regex.Replace(s, @"-+", "-").Trim('-');
-        return string.IsNullOrEmpty(s) ? "user" : s;
+        // 1) Derive a base candidate
+        var baseUser = DeriveBaseUsername(email, name);
+
+        // 2) Slugify + clamp to leave room for numeric suffixes later
+        baseUser = Slugify(baseUser);
+        if (string.IsNullOrWhiteSpace(baseUser)) baseUser = "user";
+
+        // You enforce max 128 chars in the model; keep head short enough to append suffixes.
+        const int MaxLen = 128;
+        if (baseUser.Length > MaxLen) baseUser = baseUser[..MaxLen];
+
+        // 3) Make it unique against the DB
+        return await EnsureUniqueUsernameAsync(baseUser, ct);
     }
 
-    private async Task<string> GenerateUniqueUsernameAsync(string? email, string? name)
+// Build a reasonable base from email/name
+    private static string DeriveBaseUsername(string? email, string? name)
     {
-        // seed from email prefix or name; fallback to short guid
-        string baseSlug =
-            (!string.IsNullOrWhiteSpace(email) ? email.Split('@')[0] :
-                !string.IsNullOrWhiteSpace(name) ? name.Replace(" ", "").ToLowerInvariant() :
-                "user") ?? "user";
+        // email local part first (most stable/expected)
+        var local = (email ?? "").Split('@')[0];
+        if (!string.IsNullOrWhiteSpace(local)) return local;
 
-        baseSlug = new string(baseSlug.Where(char.IsLetterOrDigit).ToArray());
-        if (string.IsNullOrWhiteSpace(baseSlug)) baseSlug = "user";
+        if (!string.IsNullOrWhiteSpace(name)) return name;
 
-        string candidate = baseSlug;
-        int i = 0;
-        while (await _dbContext.Users.AnyAsync(u => u.Username == candidate))
+        return "user";
+    }
+
+// Slugify to [a-z0-9-_.], collapse spaces/invalids to hyphens
+    private static string Slugify(string value)
+    {
+        var s = (value ?? string.Empty).Trim().ToLowerInvariant();
+
+        // Replace whitespace with hyphens
+        s = Regex.Replace(s, @"\s+", "-");
+
+        // Remove disallowed chars (keep letters, digits, -, _, .)
+        s = Regex.Replace(s, @"[^a-z0-9._-]", "");
+
+        // Collapse multiple hyphens and trim
+        s = Regex.Replace(s, @"-+", "-").Trim('-');
+
+        return string.IsNullOrWhiteSpace(s) ? "user" : s;
+    }
+
+// Append -2, -3, ... until unique; keep under 128 chars including suffix
+    private async Task<string> EnsureUniqueUsernameAsync(string baseUser, CancellationToken ct)
+    {
+        const int MaxLen = 128;
+        var candidate = baseUser;
+        var n = 1;
+
+        while (await _db.Users.AnyAsync(u => u.Username == candidate, ct))
         {
-            i++;
-            candidate = $"{baseSlug}{i}";
-            if (i > 50)
-            {
-                candidate = $"user_{Guid.NewGuid():N}".Substring(0, 16);
-                break;
-            }
+            n++;
+            var suffix = "-" + n.ToString();
+            var headLen = Math.Max(1, MaxLen - suffix.Length);
+            var head = baseUser.Length > headLen ? baseUser[..headLen] : baseUser;
+            candidate = head + suffix;
         }
 
         return candidate;

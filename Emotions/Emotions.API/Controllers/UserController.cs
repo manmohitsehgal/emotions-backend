@@ -1,71 +1,117 @@
 using Emotions.Application.DTOs;
 using Emotions.Application.Interfaces;
-using Emotions.Domain.Entities;
 using Emotions.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
-namespace Emotions.API.Controllers;
+namespace Emotions.Api.Controllers;
 
 [ApiController]
 [Route("api/users")]
-[Authorize] // ✅ require a valid JWT for all actions in this controller
-public sealed class UsersController : ControllerBase
+public class UsersController : ControllerBase
 {
-    private readonly IUserService _users;
     private readonly AppDbContext _db;
+    private readonly IUserService _users;
 
-    public UsersController(AppDbContext dbContext, IUserService users)
+    public UsersController(AppDbContext db, IUserService users)
     {
-        _db = dbContext;
+        _db = db;
         _users = users;
     }
 
+    // GET /api/users/me — pure read; never creates a user
+    [Authorize]
     [HttpGet("me")]
+    [ProducesResponseType(typeof(UserDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Me(CancellationToken ct)
     {
-        // ✅ Let the service extract the GUID from claims (and create on first access)
-        var u = await _users.GetOrCreateAsync(ct);
+        var user = await _users.TryGetByExternalIdAsync(User, ct);
+        if (user is null) return NotFound();
 
-        return Ok(new
+        var interests = await _db.UserInterests
+            .Where(ui => ui.UserId == user.Id)
+            .Select(ui => ui.Interest.Slug)
+            .ToListAsync(ct);
+
+        var dto = new UserDto
         {
-            id = u.Id,
-            username = u.Username,
-            hasCompletedOnboarding = u.HasCompletedOnboarding,
-            analyticsOptIn = u.AnalyticsOptIn,
-            // Optionally include email if you store it:
-            // email = u.Email
-        });
+            Id = user.Id,
+            Username = user.Username,
+            Email = user.Email,
+            AnalyticsOptIn = user.AnalyticsOptIn,
+            HasCompletedOnboarding = user.HasCompletedOnboarding,
+            Interests = interests
+        };
+        return Ok(dto);
     }
 
-    [HttpPost("identify")]
-    public async Task<ActionResult<UserDto>> Identify([FromBody] IdentifyUserRequest req, CancellationToken ct)
+    // POST /api/users/provision — idempotent create after interactive login
+    [Authorize]
+    [HttpPost("provision")]
+    [ProducesResponseType(typeof(UserDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> Provision(CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(req.Username))
-            return BadRequest("Username is required.");
+        var user = await _users.ProvisionFromClaimsAsync(User, ct);
 
-        var u = await _users.IdentifyAsync(req.Username.Trim(), ct);
-        return Ok(ToResponse(u));
+        var interests = await _db.UserInterests
+            .Where(ui => ui.UserId == user.Id)
+            .Select(ui => ui.Interest.Slug)
+            .ToListAsync(ct);
+
+        var dto = new UserDto
+        {
+            Id = user.Id,
+            Username = user.Username,
+            Email = user.Email,
+            AnalyticsOptIn = user.AnalyticsOptIn,
+            HasCompletedOnboarding = user.HasCompletedOnboarding,
+            Interests = interests
+        };
+        return Ok(dto);
     }
 
-    public record OnboardingReq(bool analyticsOptIn);
-
-    [HttpPost("onboarding-complete")]
-    public async Task<IActionResult> Complete([FromBody] OnboardingReq r, CancellationToken ct)
+    // POST /api/users/username — set/replace app username
+    [Authorize]
+    [HttpPost("username")]
+    public async Task<IActionResult> SetUsername([FromBody] SetUsernameRequest req, CancellationToken ct)
     {
-        // ✅ Same: get current user via service; update flags
-        var u = await _users.GetOrCreateAsync(ct);
-        u.HasCompletedOnboarding = true;
-        u.AnalyticsOptIn = r.analyticsOptIn;
-        await _db.SaveChangesAsync(ct);
+        await _users.SetUsernameAsync(User, req.Username, ct);
         return NoContent();
     }
 
-    private static UserDto ToResponse(User u) => new()
+    // POST /api/users/interests — replace interests by slug list
+    [Authorize]
+    [HttpPost("interests")]
+    public async Task<IActionResult> SetInterests([FromBody] SetInterestsRequest req, CancellationToken ct)
     {
-        Id = u.Id,
-        Username = u.Username,
-        AnalyticsOptIn = u.AnalyticsOptIn,
-        HasCompletedOnboarding = u.HasCompletedOnboarding
-    };
+        await _users.SetInterestsAsync(User, req.Interests ?? Enumerable.Empty<string>(), ct);
+        return NoContent();
+    }
+
+    // POST /api/users/onboarding-complete — mark onboarding done
+    [Authorize]
+    [HttpPost("onboarding-complete")]
+    public async Task<IActionResult> Complete([FromBody] OnboardingCompleteRequest req, CancellationToken ct)
+    {
+        await _users.CompleteOnboardingAsync(User, req.AnalyticsOptIn, ct);
+        return NoContent();
+    }
+}
+
+// ---------- Contracts used by this controller ----------
+public sealed class SetUsernameRequest
+{
+    public required string Username { get; set; }
+}
+
+public sealed class SetInterestsRequest
+{
+    public List<string>? Interests { get; set; }
+}
+
+public sealed class OnboardingCompleteRequest
+{
+    public bool? AnalyticsOptIn { get; set; }
 }

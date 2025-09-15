@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Emotions.Application.Interfaces;
 using Emotions.Application.Interfaces.Auth;
+using Emotions.Infrastructure.Auth;
 using Emotions.Infrastructure.Data;
 using Emotions.Infrastructure.Services;
 using Emotions.Infrastructure.SignalR;
@@ -35,7 +36,7 @@ builder.Services.AddScoped<IJournalService, JournalService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IVoiceRoomService, VoiceRoomService>();
 
-// (Optional) create/get users from OIDC claims when authenticated
+// Explicit OIDC provisioner (used only when you *choose* to provision)
 builder.Services.AddScoped<IUserProvisioner, OidcProvisioner>();
 
 // ---------- Auth0 (OIDC) ----------
@@ -67,11 +68,11 @@ builder.Services
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
 
+            // Your Auth0 Action injects this custom GUID claim
             NameClaimType = "https://emotions.app/user_guid",
 
             ClockSkew = TimeSpan.FromSeconds(45),
             RoleClaimType = "roles",
-            // Auth0 commonly returns "at+jwt" for access tokens; keep both
             ValidTypes = new[] { "at+jwt", "JWT" }
         };
 
@@ -98,9 +99,7 @@ builder.Services
                 {
                     var q = ctx.Request.Query["access_token"];
                     if (!string.IsNullOrWhiteSpace(q))
-                    {
-                        ctx.Token = q.ToString(); // no mutation
-                    }
+                        ctx.Token = q.ToString();
                 }
 
                 // Optional debug (safe; no token content)
@@ -118,17 +117,6 @@ builder.Services
                 Console.WriteLine("[Auth0] Auth failed: " + ctx.Exception.Message);
                 return Task.CompletedTask;
             },
-
-            // OnTokenValidated = ctx =>
-            // {
-            //     if (ctx.SecurityToken is JwtSecurityToken t)
-            //     {
-            //         Console.WriteLine(
-            //             $"[Auth0] OK iss={t.Issuer} aud={string.Join(",", t.Audiences)} exp={t.ValidTo:u}");
-            //     }
-            //
-            //     return Task.CompletedTask;
-            // }
 
             OnTokenValidated = ctx =>
             {
@@ -231,6 +219,7 @@ if (app.Environment.IsDevelopment())
 app.UseRouting();
 app.UseCors(CorsPolicy);
 
+// (optional request logs)
 app.Use(async (ctx, next) =>
 {
     var auth = ctx.Request.Headers.Authorization.ToString();
@@ -240,35 +229,13 @@ app.Use(async (ctx, next) =>
     await next();
 });
 
-app.Use(async (ctx, next) =>
-{
-    var auth = ctx.Request.Headers.Authorization.ToString();
-    if (!string.IsNullOrEmpty(auth))
-    {
-        var token = auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-            ? auth["Bearer ".Length..]
-            : auth;
-        Console.WriteLine($"[REQ] {ctx.Request.Method} {ctx.Request.Path} hasDot={token.Contains('.')}");
-    }
-
-    await next();
-});
-
-
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Optional: auto-provision a local user record from claims when authenticated
-app.Use(async (ctx, next) =>
-{
-    if (ctx.User?.Identity?.IsAuthenticated == true)
-    {
-        var prov = ctx.RequestServices.GetRequiredService<IUserProvisioner>();
-        await prov.GetOrCreateFromClaimsAsync(ctx.User, ctx.RequestAborted);
-    }
-
-    await next();
-});
+// ❌ REMOVED: implicit auto-provision on every request
+// This was recreating “ghost users”.
+// DO NOT auto-provision from middleware.
+// If you need to provision, call an explicit endpoint instead.
 
 app.MapControllers();
 app.MapHub<VoiceHub>("/hub/voice");

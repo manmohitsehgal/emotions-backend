@@ -4,5 +4,6 @@ public record OnboardingCompleteRequest(
     Guid UserId,
     string Username,
     string? Template,
-    bool AnalyticsOptIn
+    bool? AnalyticsOptIn,
+    List<string>? Interests //
 );
