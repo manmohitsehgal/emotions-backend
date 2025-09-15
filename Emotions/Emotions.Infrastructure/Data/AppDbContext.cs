@@ -23,7 +23,7 @@ public class AppDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
-// ---------------- VoiceRoom ----------------
+        // ---------------- VoiceRoom ----------------
         modelBuilder.Entity<VoiceRoom>(e =>
         {
             e.HasKey(x => x.Id);
@@ -51,7 +51,7 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
-// --------------- VoiceRoomMember (surrogate Id PK) ---------------
+        // --------------- VoiceRoomMember (surrogate Id PK) ---------------
         modelBuilder.Entity<VoiceRoomMember>(e =>
         {
             e.HasKey(x => x.Id);
@@ -72,7 +72,7 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
-// --------------- VoiceRoomConnection ---------------
+        // --------------- VoiceRoomConnection ---------------
         modelBuilder.Entity<VoiceRoomConnection>(e =>
         {
             e.HasKey(x => x.Id);
@@ -80,7 +80,6 @@ public class AppDbContext : DbContext
             e.HasIndex(x => new { x.RoomId, x.DisconnectedAt });
             e.HasIndex(x => new { x.RoomId, x.UserId });
 
-            // If you added HubConnectionId, keep these lines; otherwise remove them.
             e.Property(x => x.HubConnectionId).IsRequired();
             e.HasIndex(x => x.HubConnectionId).IsUnique();
 
@@ -92,7 +91,7 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
-// -------------------- User --------------------
+        // -------------------- User --------------------
         modelBuilder.Entity<User>(e =>
         {
             e.HasKey(x => x.Id);
@@ -100,20 +99,70 @@ public class AppDbContext : DbContext
             e.Property(x => x.Username).IsRequired().HasMaxLength(128);
             e.HasIndex(x => x.Username).IsUnique();
 
+            // Helpful caps for free-text fields
+            e.Property(x => x.Name).HasMaxLength(128);
+            e.Property(x => x.Email).HasMaxLength(256);
+
             e.Property(x => x.IsMuted).HasDefaultValue(false);
             e.Property(x => x.AnalyticsOptIn).HasDefaultValue(false);
+
+            // DB-level default for created timestamp (Postgres)
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("NOW() AT TIME ZONE 'UTC'");
+
+            // Stable OIDC subject; must be unique
+            e.Property(x => x.ExternalId).IsRequired();
+            e.HasIndex(x => x.ExternalId).IsUnique();
 
             // Optional FK to current room; null when not in a room.
             e.HasOne(x => x.VoiceRoom)
                 .WithMany()
                 .HasForeignKey(x => x.VoiceRoomId)
                 .OnDelete(DeleteBehavior.SetNull);
+
+            // Explicit join (UserInterest)
+            e.HasMany(u => u.UserInterests)
+                .WithOne(ui => ui.User)
+                .HasForeignKey(ui => ui.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
-        modelBuilder.Entity<UserInterest>().HasKey(x => new { x.UserId, x.InterestId });
-        modelBuilder.Entity<Interest>().HasIndex(x => x.Slug).IsUnique();
+        // -------------------- UserInterest (explicit join) --------------------
+        modelBuilder.Entity<UserInterest>(b =>
+        {
+            // Composite primary key prevents duplicates
+            b.HasKey(ui => new { ui.UserId, ui.InterestId });
 
-        // Seed a small catalog (optional)
+            // FKs defined by navs; explicit indexes help query patterns
+            b.HasOne(ui => ui.User)
+                .WithMany(u => u.UserInterests)
+                .HasForeignKey(ui => ui.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            b.HasOne(ui => ui.Interest)
+                .WithMany(i => i.UserInterests)
+                .HasForeignKey(ui => ui.InterestId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            b.HasIndex(ui => ui.InterestId);
+        });
+
+        // -------------------- Interest --------------------
+        modelBuilder.Entity<Interest>(b =>
+        {
+            b.HasKey(i => i.Id);
+            b.Property(i => i.Name).HasMaxLength(128).IsRequired();
+            b.Property(i => i.Slug).HasMaxLength(64).IsRequired();
+
+            // Slug must be unique (stable key exchanged with the app)
+            b.HasIndex(i => i.Slug).IsUnique();
+
+            b.HasMany(i => i.UserInterests)
+                .WithOne(ui => ui.Interest)
+                .HasForeignKey(ui => ui.InterestId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // -------------------- Seed a small catalog (optional) --------------------
         modelBuilder.Entity<Interest>().HasData(new[]
         {
             new Interest { Id = 1, Name = "Stress", Slug = "stress" },

@@ -5,6 +5,6 @@ namespace Emotions.Application.Interfaces.Auth
 {
     public interface IUserProvisioner
     {
-        Task<User> GetOrCreateFromClaimsAsync(ClaimsPrincipal principal, CancellationToken ct);
+        Task<User> CreateFromClaimsAsync(ClaimsPrincipal principal, CancellationToken ct);
     }
 }

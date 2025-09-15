@@ -1,99 +1,117 @@
 using Emotions.Application.DTOs;
 using Emotions.Application.Interfaces;
-using Emotions.Domain.Entities;
 using Emotions.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
-namespace Emotions.API.Controllers;
+namespace Emotions.Api.Controllers;
 
 [ApiController]
 [Route("api/users")]
-[Authorize] // ✅ require a valid JWT for all actions in this controller
-public sealed class UsersController : ControllerBase
+public class UsersController : ControllerBase
 {
-    private readonly IUserService _userService;
     private readonly AppDbContext _db;
+    private readonly IUserService _users;
 
-    public UsersController(AppDbContext dbContext, IUserService userService)
+    public UsersController(AppDbContext db, IUserService users)
     {
-        _db = dbContext;
-        _userService = userService;
+        _db = db;
+        _users = users;
     }
 
+    // GET /api/users/me — pure read; never creates a user
+    [Authorize]
     [HttpGet("me")]
+    [ProducesResponseType(typeof(UserDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Me(CancellationToken ct)
     {
-        // ✅ Let the service extract the GUID from claims (and create on first access)
-        var user = await _userService.GetOrCreateAsync(ct);
+        var user = await _users.TryGetByExternalIdAsync(User, ct);
+        if (user is null) return NotFound();
 
         var interests = await _db.UserInterests
             .Where(ui => ui.UserId == user.Id)
-            .Select(ui => ui.Interest.Name)
+            .Select(ui => ui.Interest.Slug)
             .ToListAsync(ct);
 
-        return Ok(new UserDto()
+        var dto = new UserDto
         {
             Id = user.Id,
             Username = user.Username,
             Email = user.Email,
             AnalyticsOptIn = user.AnalyticsOptIn,
             HasCompletedOnboarding = user.HasCompletedOnboarding,
-            Interests = interests,
-        });
+            Interests = interests
+        };
+        return Ok(dto);
     }
 
-    [HttpPost("identify")]
-    public async Task<ActionResult<UserDto>> Identify([FromBody] IdentifyUserRequest req, CancellationToken ct)
+    // POST /api/users/provision — idempotent create after interactive login
+    [Authorize]
+    [HttpPost("provision")]
+    [ProducesResponseType(typeof(UserDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> Provision(CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(req.Username))
-            return BadRequest("Username is required.");
+        var user = await _users.ProvisionFromClaimsAsync(User, ct);
 
-        var u = await _userService.IdentifyAsync(req.Username.Trim(), ct);
-        return Ok(ToResponse(u));
-    }
+        var interests = await _db.UserInterests
+            .Where(ui => ui.UserId == user.Id)
+            .Select(ui => ui.Interest.Slug)
+            .ToListAsync(ct);
 
-
-    [HttpPost("onboarding-complete")]
-    public async Task<IActionResult> Complete([FromBody] OnboardingCompleteRequest req, CancellationToken ct)
-    {
-        var user = await _userService.GetOrCreateAsync(ct);
-
-        if (req.AnalyticsOptIn is not null)
-            user.AnalyticsOptIn = req.AnalyticsOptIn.Value;
-
-        if (req.Interests is { Count: > 0 })
+        var dto = new UserDto
         {
-            // whitelist against catalog
-            var wanted = req.Interests
-                .Select(s => s.Trim())
-                .Where(s => !string.IsNullOrWhiteSpace(s))
-                .Select(s => s.ToLowerInvariant())
-                .ToHashSet();
+            Id = user.Id,
+            Username = user.Username,
+            Email = user.Email,
+            AnalyticsOptIn = user.AnalyticsOptIn,
+            HasCompletedOnboarding = user.HasCompletedOnboarding,
+            Interests = interests
+        };
+        return Ok(dto);
+    }
 
-            var catalog = await _db.Interests
-                .Where(i => wanted.Contains(i.Slug) || wanted.Contains(i.Name.ToLower()))
-                .Select(i => i.Id)
-                .ToListAsync(ct);
-
-            // replace joins
-            var existing = _db.UserInterests.Where(ui => ui.UserId == user.Id);
-            _db.UserInterests.RemoveRange(existing);
-            _db.UserInterests.AddRange(catalog.Select(id => new UserInterest { UserId = user.Id, InterestId = id }));
-        }
-
-        user.HasCompletedOnboarding = true;
-        await _db.SaveChangesAsync(ct);
-
+    // POST /api/users/username — set/replace app username
+    [Authorize]
+    [HttpPost("username")]
+    public async Task<IActionResult> SetUsername([FromBody] SetUsernameRequest req, CancellationToken ct)
+    {
+        await _users.SetUsernameAsync(User, req.Username, ct);
         return NoContent();
     }
 
-    private static UserDto ToResponse(User u) => new()
+    // POST /api/users/interests — replace interests by slug list
+    [Authorize]
+    [HttpPost("interests")]
+    public async Task<IActionResult> SetInterests([FromBody] SetInterestsRequest req, CancellationToken ct)
     {
-        Id = u.Id,
-        Username = u.Username,
-        AnalyticsOptIn = u.AnalyticsOptIn,
-        HasCompletedOnboarding = u.HasCompletedOnboarding
-    };
+        await _users.SetInterestsAsync(User, req.Interests ?? Enumerable.Empty<string>(), ct);
+        return NoContent();
+    }
+
+    // POST /api/users/onboarding-complete — mark onboarding done
+    [Authorize]
+    [HttpPost("onboarding-complete")]
+    public async Task<IActionResult> Complete([FromBody] OnboardingCompleteRequest req, CancellationToken ct)
+    {
+        await _users.CompleteOnboardingAsync(User, req.AnalyticsOptIn, ct);
+        return NoContent();
+    }
+}
+
+// ---------- Contracts used by this controller ----------
+public sealed class SetUsernameRequest
+{
+    public required string Username { get; set; }
+}
+
+public sealed class SetInterestsRequest
+{
+    public List<string>? Interests { get; set; }
+}
+
+public sealed class OnboardingCompleteRequest
+{
+    public bool? AnalyticsOptIn { get; set; }
 }

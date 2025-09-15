@@ -5,137 +5,97 @@ using Emotions.Domain.Entities;
 using Emotions.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
-public class OidcProvisioner : IUserProvisioner
+namespace Emotions.Infrastructure.Auth
 {
-    private readonly AppDbContext _db;
-    public OidcProvisioner(AppDbContext db) => _db = db;
-
-    public async Task<User> GetOrCreateFromClaimsAsync(ClaimsPrincipal principal, CancellationToken ct)
+    /// <summary>
+    /// Create-only provisioner: turns OIDC claims into a new User row.
+    /// Caller (UserService) is responsible for checking existence and
+    /// catching unique constraint races on Users.ExternalId.
+    /// </summary>
+    public class OidcProvisioner : IUserProvisioner
     {
-        // 1) Stable external id (Auth0 "sub")
-        var sub = principal.FindFirstValue("sub")
-                  ?? principal.FindFirstValue(ClaimTypes.NameIdentifier)
-                  ?? throw new InvalidOperationException("Missing 'sub' claim from IdP.");
+        private readonly AppDbContext _db;
+        public OidcProvisioner(AppDbContext db) => _db = db;
 
-        // 2) If user already exists, return it
-        var existing = await _db.Users.SingleOrDefaultAsync(u => u.ExternalId == sub, ct);
-        if (existing is not null) return existing;
+        private const int MaxUsernameLength = 128;
 
-        // 3) Pull what we can from claims
-        var email = principal.FindFirstValue(ClaimTypes.Email)
-                    ?? principal.Claims.FirstOrDefault(c => c.Type == "email")?.Value;
+        public async Task<User> CreateFromClaimsAsync(ClaimsPrincipal principal, CancellationToken ct = default)
+        {
+            var sub = principal.FindFirstValue("sub")
+                      ?? principal.FindFirstValue(ClaimTypes.NameIdentifier)
+                      ?? throw new InvalidOperationException("Missing 'sub' claim.");
 
-        var name = principal.FindFirstValue("name")
-                   ?? principal.FindFirstValue(ClaimTypes.Name)
-                   ?? (email is not null ? email.Split('@')[0] : null)
-                   ?? "User";
+            var email = principal.FindFirstValue(ClaimTypes.Email)
+                        ?? principal.Claims.FirstOrDefault(c => c.Type == "email")?.Value;
 
-        var preferred = principal.Claims.FirstOrDefault(c => c.Type == "preferred_username")?.Value;
-        var nickname = principal.Claims.FirstOrDefault(c => c.Type == "nickname")?.Value;
-
-        // 4) Build a base username with sensible fallbacks
-        var baseUser = preferred
-                       ?? nickname
+            var name = principal.FindFirstValue("name")
+                       ?? principal.FindFirstValue(ClaimTypes.Name)
                        ?? (email is not null ? email.Split('@')[0] : null)
-                       ?? Slugify(name)
-                       ?? Slugify(sub.Replace("|", "-"));
+                       ?? "User";
 
-        // Last-ditch fallback (should never be hit)
-        if (string.IsNullOrWhiteSpace(baseUser))
-            baseUser = "user";
+            var preferred = principal.Claims.FirstOrDefault(c => c.Type == "preferred_username")?.Value;
+            var nickname = principal.Claims.FirstOrDefault(c => c.Type == "nickname")?.Value;
 
-        baseUser = Slugify(baseUser);
+            // Derive a base username with sensible fallbacks
+            var baseUser = preferred
+                           ?? nickname
+                           ?? (email is not null ? email.Split('@')[0] : null)
+                           ?? Slugify(name)
+                           ?? Slugify(sub.Replace("|", "-"))
+                           ?? "user";
 
-        // 5) Ensure DB-unique (append -1, -2, … if needed)
-        var username = await EnsureUniqueUsernameAsync(baseUser, ct);
+            baseUser = Slugify(baseUser);
+            if (string.IsNullOrWhiteSpace(baseUser)) baseUser = "user";
 
-        // 6) Create minimal valid record (fill what your schema requires)
-        var user = new User
-        {
-            Id = Guid.NewGuid(),
-            CreatedAt = DateTime.UtcNow,
-            ExternalId = sub,
-            Email = email,
-            Name = name,
-            Username = username,
-            HasCompletedOnboarding = false,
-            // OnboardedAt = null,
-            // OnboardingTemplate = null,
-            // VoiceRoomId = null
-        };
+            // Ensure DB-unique (append -2, -3, …; keep under 128 chars)
+            var username = await EnsureUniqueUsernameAsync(baseUser, ct);
 
-        _db.Users.Add(user);
-        await _db.SaveChangesAsync(ct);
-        return user;
-    }
+            var user = new User
+            {
+                Id = Guid.NewGuid(),
+                ExternalId = sub, // UNIQUE index recommended
+                Username = username,
+                Name = name,
+                Email = email,
+                HasCompletedOnboarding = false,
+                AnalyticsOptIn = false,
+                CreatedAt = DateTime.UtcNow
+            };
 
-    private async Task<string> EnsureUniqueUsernameAsync(string baseName, CancellationToken ct)
-    {
-        var name = baseName;
-        var i = 0;
-        while (await _db.Users.AnyAsync(u => u.Username == name, ct))
-        {
-            i++;
-            name = $"{baseName}-{i}";
+            _db.Users.Add(user);
+            await _db.SaveChangesAsync(ct);
+            return user;
         }
 
-        return name;
-    }
+        // ---------- helpers ----------
 
-    private static string Slugify(string input)
-    {
-        if (string.IsNullOrWhiteSpace(input)) return "";
-        var s = input.Trim().ToLowerInvariant();
-        s = Regex.Replace(s, @"[^\p{Ll}\p{Lu}\p{Nd}]+", "-"); // non-alnum → hyphen
-        s = Regex.Replace(s, @"-+", "-").Trim('-'); // collapse dashes
-        return s.Length == 0 ? "" : s;
+        // keep lowercase letters, digits, dot, underscore, hyphen
+        private static string Slugify(string value)
+        {
+            var s = (value ?? string.Empty).Trim().ToLowerInvariant();
+            s = Regex.Replace(s, @"\s+", "-"); // spaces -> hyphen
+            s = Regex.Replace(s, @"[^a-z0-9._-]", ""); // strip others
+            s = Regex.Replace(s, @"-+", "-").Trim('-'); // collapse hyphens
+            return string.IsNullOrWhiteSpace(s) ? "user" : s;
+        }
+
+        private async Task<string> EnsureUniqueUsernameAsync(string baseUser, CancellationToken ct)
+        {
+            // clamp base so we have room for suffixes
+            var head = baseUser.Length > MaxUsernameLength ? baseUser[..MaxUsernameLength] : baseUser;
+            var candidate = head;
+            var n = 1;
+
+            while (await _db.Users.AnyAsync(u => u.Username == candidate, ct))
+            {
+                n++;
+                var suffix = "-" + n;
+                var headLen = Math.Max(1, MaxUsernameLength - suffix.Length);
+                var trimmedHead = head.Length > headLen ? head[..headLen] : head;
+                candidate = trimmedHead + suffix;
+            }
+
+            return candidate;
+        }
     }
 }
-
-// using System.Security.Claims;
-// using Emotions.Application.Interfaces.Auth;
-// using Emotions.Domain.Entities;
-// using Emotions.Infrastructure.Data;
-// using Microsoft.EntityFrameworkCore;
-//
-// namespace Emotions.Infrastructure.Auth
-// {
-//     public class OidcProvisioner : IUserProvisioner
-//     {
-//         private readonly AppDbContext _db;
-//
-//         public OidcProvisioner(AppDbContext db)
-//         {
-//             _db = db;
-//         }
-//
-//         public async Task<User> GetOrCreateFromClaimsAsync(ClaimsPrincipal principal, CancellationToken ct)
-//         {
-//             // The stable identifier from Auth0 (the "sub" claim)
-//             var sub = principal.FindFirstValue(ClaimTypes.NameIdentifier) 
-//                       ?? principal.FindFirstValue("sub");
-//
-//             if (string.IsNullOrEmpty(sub))
-//                 throw new InvalidOperationException("No sub claim found in OIDC token.");
-//
-//             // Try to find existing user
-//             var user = await _db.Users.FirstOrDefaultAsync(u => u.ExternalId == sub, ct);
-//             if (user != null) return user;
-//
-//             // Create new user record
-//             user = new User
-//             {
-//                 Id = Guid.NewGuid(),
-//                 ExternalId = sub,
-//                 Name = principal.FindFirstValue("name") ?? "Unknown",
-//                 Email = principal.FindFirstValue(ClaimTypes.Email) ?? principal.FindFirstValue("email"),
-//                 CreatedAt = DateTime.UtcNow
-//             };
-//
-//             _db.Users.Add(user);
-//             await _db.SaveChangesAsync(ct);
-//
-//             return user;
-//         }
-//     }
-// }
