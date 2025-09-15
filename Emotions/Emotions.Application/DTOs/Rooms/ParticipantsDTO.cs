@@ -1,4 +1,4 @@
-namespace Emotions.Application.DTOs.VoiceRooms;
+namespace Emotions.Application.DTOs.Rooms;
 
 public class ParticipantDto
 {

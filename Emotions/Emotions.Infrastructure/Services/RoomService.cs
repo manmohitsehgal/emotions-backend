@@ -1,7 +1,7 @@
 using Emotions.Application.Common;
 using Emotions.Application.DTOs;
 using Emotions.Application.DTOs.Mappers;
-using Emotions.Application.DTOs.VoiceRooms;
+using Emotions.Application.DTOs.Rooms;
 using Emotions.Application.DTOs.VoiceRooms.Queries;
 using Emotions.Application.Interfaces;
 using Emotions.Domain.Entities;
@@ -10,20 +10,20 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Emotions.Infrastructure.Services
 {
-    public sealed class VoiceRoomService : IVoiceRoomService
+    public sealed class RoomService : IRoomService
     {
         private readonly AppDbContext _db;
-        private readonly IVoicePresenceService _presence;
+        private readonly IPresenceService _presence;
 
 
-        public VoiceRoomService(AppDbContext db, IVoicePresenceService presence)
+        public RoomService(AppDbContext db, IPresenceService presence)
         {
             _db = db;
             _presence = presence;
         }
 
 
-        public async Task<PagedResult<VoiceRoomSummaryDto>> ListAsync(RoomListQuery query,
+        public async Task<PagedResult<RoomSummaryDto>> ListAsync(RoomListQuery query,
             CancellationToken ct = default)
         {
             var q = _db.VoiceRooms.AsNoTracking().Where(r => !r.IsDeleted);
@@ -60,11 +60,11 @@ namespace Emotions.Infrastructure.Services
             var summaries = items.Select(i => i.ToSummary(counts.TryGetValue(i.Id, out var c) ? c : null)).ToList();
 
 
-            return new PagedResult<VoiceRoomSummaryDto> { Items = summaries, Page = page, PageSize = size };
+            return new PagedResult<RoomSummaryDto> { Items = summaries, Page = page, PageSize = size };
         }
 
 
-        public async Task<VoiceRoomDetailDto?> GetAsync(Guid id, CancellationToken ct = default)
+        public async Task<RoomDetailDto?> GetAsync(Guid id, CancellationToken ct = default)
         {
             var r = await _db.VoiceRooms.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, ct);
             if (r is null) return null;

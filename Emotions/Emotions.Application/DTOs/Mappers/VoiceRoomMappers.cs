@@ -1,11 +1,11 @@
-using Emotions.Application.DTOs.VoiceRooms;
+using Emotions.Application.DTOs.Rooms;
 using Emotions.Domain.Entities;
 
 namespace Emotions.Application.DTOs.Mappers
 {
     public static class VoiceRoomMappers
     {
-        public static VoiceRoomSummaryDto ToSummary(this VoiceRoom r, int? approxMemberCount = null) => new()
+        public static RoomSummaryDto ToSummary(this VoiceRoom r, int? approxMemberCount = null) => new()
         {
             Id = r.Id,
             Title = r.Title,
@@ -24,10 +24,10 @@ namespace Emotions.Application.DTOs.Mappers
             ThumbnailUrl = r.ThumbnailUrl
         };
 
-        public static VoiceRoomDetailDto ToDetail(this VoiceRoom r, int? approxMemberCount = null)
+        public static RoomDetailDto ToDetail(this VoiceRoom r, int? approxMemberCount = null)
         {
             var d = ToSummary(r, approxMemberCount);
-            return new VoiceRoomDetailDto
+            return new RoomDetailDto
             {
                 Id = d.Id,
                 Title = d.Title,

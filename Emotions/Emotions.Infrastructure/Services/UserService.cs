@@ -156,6 +156,29 @@ public class UserService : IUserService
         return user.Id;
     }
 
+    public bool TryGetAuthenticatedUserId(ClaimsPrincipal principal, out Guid userId)
+    {
+        var id = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                 ?? principal.FindFirst("sub")?.Value;
+
+        if (!string.IsNullOrWhiteSpace(id) && Guid.TryParse(id, out var parsed))
+        {
+            userId = parsed;
+            return true;
+        }
+
+        userId = default;
+        return false;
+    }
+
+    public Guid GetAuthenticatedUserId(ClaimsPrincipal principal)
+    {
+        if (TryGetAuthenticatedUserId(principal, out var guid))
+            return guid;
+
+        throw new InvalidOperationException("User id claim is missing or not a valid GUID.");
+    }
+
     private async Task<string> GenerateUniqueUsernameAsync(string? email, string? name, CancellationToken ct = default)
     {
         // 1) Derive a base candidate

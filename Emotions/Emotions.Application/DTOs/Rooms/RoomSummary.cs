@@ -1,6 +1,6 @@
 namespace Emotions.Application.DTOs;
 
-public class VoiceRoomSummaryDto
+public class RoomSummaryDto
 {
     public Guid Id { get; init; }
     public string Title { get; init; } = default!;

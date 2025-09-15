@@ -1,10 +1,10 @@
-using Emotions.Application.DTOs.VoiceRooms;
+using Emotions.Application.DTOs.Rooms;
 using Emotions.Application.Interfaces;
 using StackExchange.Redis;
 
 namespace Emotions.Infrastructure.SignalR.Presence;
 
-public sealed class RedisVoicePresenceService : IVoicePresenceService, IAsyncDisposable
+public sealed class RedisPresenceService : IPresenceService, IAsyncDisposable
 {
     private readonly ConnectionMultiplexer _mux;
     private readonly IDatabase _db;
@@ -16,7 +16,7 @@ public sealed class RedisVoicePresenceService : IVoicePresenceService, IAsyncDis
     // presence:{prefix}:room:{roomId}:user:{userId}:attrs  (HASH displayName,isMuted,isVideoOn)
     // presence:{prefix}:conn:{connectionId}                (HASH roomId,userId)
 
-    public RedisVoicePresenceService(string connectionString, string keyPrefix)
+    public RedisPresenceService(string connectionString, string keyPrefix)
     {
         _mux = ConnectionMultiplexer.Connect(connectionString);
         _db = _mux.GetDatabase();

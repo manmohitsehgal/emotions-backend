@@ -1,17 +1,18 @@
 using System.Security.Claims;
-using Emotions.Application.DTOs.VoiceRooms;
+using Emotions.Application.DTOs.Rooms;
 using Emotions.Application.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
 
 namespace Emotions.Infrastructure.SignalR
 {
-    public partial class VoiceHub : Hub
+    public partial class VoiceHub : Hub<IVoiceClient>
     {
-        private readonly IVoicePresenceService _presence; // or IVoicePresenceService if you prefer the interface
+        private readonly IPresenceService _presence; // or IVoicePresenceService if you prefer the interface
         private readonly ILogger<VoiceHub> _logger;
 
-        public VoiceHub(IVoicePresenceService presence, ILogger<VoiceHub> logger)
+        public VoiceHub(IPresenceService presence, ILogger<VoiceHub> logger)
         {
             _presence = presence;
             _logger = logger;
@@ -19,27 +20,27 @@ namespace Emotions.Infrastructure.SignalR
 
         public async Task RaiseHand(Guid roomId, Guid userId)
         {
-            await Clients.Group(roomId.ToString()).SendAsync("HandRaised", new { roomId, userId });
+            await Clients.Group(roomId.ToString()).HandRaised(new { roomId, userId });
         }
 
         public async Task GrantMic(Guid roomId, Guid userId)
         {
-            await Clients.Group(roomId.ToString()).SendAsync("MicGranted", new { roomId, userId });
+            await Clients.Group(roomId.ToString()).MicGranted(new { roomId, userId });
         }
 
         public async Task Kick(Guid roomId, Guid userId, string? reason = null)
         {
-            await Clients.Group(roomId.ToString()).SendAsync("UserKicked", new { roomId, userId, reason });
+            await Clients.Group(roomId.ToString()).UserKicked(new { roomId, userId, reason });
         }
 
         public async Task Ban(Guid roomId, Guid userId, int minutes, string? reason = null)
         {
-            await Clients.Group(roomId.ToString()).SendAsync("UserBanned", new { roomId, userId, minutes, reason });
+            await Clients.Group(roomId.ToString()).UserBanned(new { roomId, userId, minutes, reason });
         }
 
         public async Task DropToolcard(Guid roomId, string type, object payload)
         {
-            await Clients.Group(roomId.ToString()).SendAsync("ToolcardDropped", new { roomId, type, payload });
+            await Clients.Group(roomId.ToString()).ToolcardDropped(new { roomId, type, payload });
         }
 
         // Client: invoke("JoinRoom", roomIdGuid)
@@ -67,7 +68,7 @@ namespace Emotions.Infrastructure.SignalR
             // Broadcast membership events
             if (isNewInRoom)
             {
-                await Clients.Group(group).SendAsync("MemberJoined", new
+                await Clients.Group(group).MemberJoined(new
                 {
                     roomId,
                     userId = userIdStr,
@@ -77,11 +78,11 @@ namespace Emotions.Infrastructure.SignalR
 
             // Count & broadcast
             var count = _presence.GetApproxMemberCount(roomId) ?? 0;
-            await Clients.Group(group).SendAsync("MemberCountUpdated", new { roomId, count });
+            await Clients.Group(group).MemberCountUpdated(new { roomId, count });
 
             // Optional: send roster to the caller for immediate UI
             var roster = await _presence.GetParticipantsAsync(roomId);
-            await Clients.Caller.SendAsync("RoomRoster", roster);
+            await Clients.Caller.RoomRoster(roster);
 
             _logger.LogInformation("JoinRoom: user {UserId} conn {Conn} room {Room}", userIdStr, connId, roomId);
         }
@@ -101,10 +102,10 @@ namespace Emotions.Infrastructure.SignalR
             await Groups.RemoveFromGroupAsync(connId, group);
 
             // Broadcast
-            await Clients.Group(group).SendAsync("MemberLeft", new { roomId, userId = userIdStr });
+            await Clients.Group(group).MemberLeft(new { roomId, userId = userIdStr });
 
             var count = _presence.GetApproxMemberCount(roomId) ?? 0;
-            await Clients.Group(group).SendAsync("MemberCountUpdated", new { roomId, count });
+            await Clients.Group(group).MemberCountUpdated(new { roomId, count });
 
             _logger.LogInformation("LeaveRoom: user {UserId} conn {Conn} room {Room}", userIdStr, connId, roomId);
         }
@@ -124,7 +125,7 @@ namespace Emotions.Infrastructure.SignalR
 
             await _presence.UpdateAsync(roomId, userIdGuid, isMuted: isMuted, isVideoOn: null);
 
-            await Clients.Group(roomId.ToString()).SendAsync("MuteChanged", new
+            await Clients.Group(roomId.ToString()).MuteChanged(new
             {
                 roomId,
                 userId = userIdStr,
@@ -148,10 +149,10 @@ namespace Emotions.Infrastructure.SignalR
                 await _presence.RemoveByConnectionAsync(connId);
                 await Groups.RemoveFromGroupAsync(connId, group);
 
-                await Clients.Group(group).SendAsync("MemberLeft", new { roomId, userId = participant.UserId });
+                await Clients.Group(group).MemberLeft(new { roomId, userId = participant.UserId });
 
                 var count = _presence.GetApproxMemberCount(roomId) ?? 0;
-                await Clients.Group(group).SendAsync("MemberCountUpdated", new { roomId, count });
+                await Clients.Group(group).MemberCountUpdated(new { roomId, count });
 
                 _logger.LogInformation("Disconnect: user {UserId} conn {Conn} room {Room}", participant.UserId, connId,
                     roomId);
@@ -159,6 +160,26 @@ namespace Emotions.Infrastructure.SignalR
 
             await base.OnDisconnectedAsync(exception);
         }
+
+        [Authorize(Roles = "Admin,Host")]
+        public Task BroadcastSessionPublished(Guid sessionId, DateTimeOffset startAt)
+            => Clients.All.SessionPublished(sessionId, startAt);
+
+        [Authorize(Roles = "Admin,Host")]
+        public Task BroadcastSeatingUpdated(Guid sessionId, int seatsTaken, int waitlistCount)
+            => Clients.All.SeatingUpdated(sessionId, seatsTaken, waitlistCount);
+
+        [Authorize(Roles = "Admin,Host")]
+        public Task BroadcastBookingPromoted(Guid sessionId, Guid userId)
+            => Clients.User(userId.ToString()).BookingPromoted(sessionId);
+
+        [Authorize(Roles = "Admin,Host")]
+        public Task BroadcastSessionLive(Guid sessionId, Guid voiceRoomId)
+            => Clients.All.SessionLive(sessionId, voiceRoomId);
+
+        [Authorize(Roles = "Admin,Host")]
+        public Task BroadcastSessionCompleted(Guid sessionId)
+            => Clients.All.SessionCompleted(sessionId);
 
         // -------- helpers
 

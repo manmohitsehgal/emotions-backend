@@ -1,6 +1,6 @@
 using Emotions.Application.Common;
 using Emotions.Application.DTOs;
-using Emotions.Application.DTOs.VoiceRooms;
+using Emotions.Application.DTOs.Rooms;
 using Emotions.Application.DTOs.VoiceRooms.Queries;
 using Emotions.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -12,24 +12,23 @@ namespace Emotions.API.Controllers
     [Route("api/[controller]")]
     public class VoiceRoomsController : ControllerBase
     {
-        private readonly IVoiceRoomService _svc;
+        private readonly IRoomService _svc;
 
-        public VoiceRoomsController(IVoiceRoomService svc)
+        public VoiceRoomsController(IRoomService svc)
         {
             _svc = svc;
         }
 
-
         [HttpGet]
         [AllowAnonymous]
-        public async Task<ActionResult<PagedResult<VoiceRoomSummaryDto>>> List([FromQuery] RoomListQuery q,
+        public async Task<ActionResult<PagedResult<RoomSummaryDto>>> List([FromQuery] RoomListQuery q,
             CancellationToken ct)
             => Ok(await _svc.ListAsync(q, ct));
 
 
         [HttpGet("{id:guid}")]
         [AllowAnonymous]
-        public async Task<ActionResult<VoiceRoomDetailDto>> Get(Guid id, CancellationToken ct)
+        public async Task<ActionResult<RoomDetailDto>> Get(Guid id, CancellationToken ct)
         {
             var dto = await _svc.GetAsync(id, ct);
             return dto is null ? NotFound() : Ok(dto);

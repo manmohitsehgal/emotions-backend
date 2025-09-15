@@ -1,4 +1,5 @@
 using Emotions.Domain.Entities;
+using Emotions.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace Emotions.Infrastructure.Data;
@@ -18,6 +19,10 @@ public class AppDbContext : DbContext
     public DbSet<VoiceRoomConnection> VoiceRoomConnections => Set<VoiceRoomConnection>();
     public DbSet<Interest> Interests => Set<Interest>();
     public DbSet<UserInterest> UserInterests => Set<UserInterest>();
+    public DbSet<SupportSession> SupportSessions => Set<SupportSession>();
+    public DbSet<SessionTemplate> SessionTemplates => Set<SessionTemplate>();
+    public DbSet<SessionHost> SessionHosts => Set<SessionHost>();
+    public DbSet<SessionBooking> SessionBookings => Set<SessionBooking>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -175,6 +180,46 @@ public class AppDbContext : DbContext
             new Interest { Id = 8, Name = "Productivity", Slug = "productivity" },
             new Interest { Id = 9, Name = "Habits", Slug = "habits" },
             new Interest { Id = 10, Name = "Anger", Slug = "anger" },
+        });
+
+        modelBuilder.Entity<SupportSession>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Title).IsRequired().HasMaxLength(140);
+            e.Property(x => x.Capacity).HasDefaultValue(15);
+            e.Property(x => x.Status).HasDefaultValue(SessionStatus.Draft);
+            e.Property(x => x.SpeakPolicy).HasDefaultValue(SpeakPolicy.RoundRobin);
+
+            e.HasOne(x => x.Host).WithMany().HasForeignKey(x => x.HostId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne(x => x.VoiceRoom).WithMany().HasForeignKey(x => x.VoiceRoomId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<SessionTemplate>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Title).IsRequired().HasMaxLength(140);
+            e.Property(x => x.SpeakPolicy).HasDefaultValue(SpeakPolicy.RoundRobin);
+        });
+
+        modelBuilder.Entity<SessionHost>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.DisplayName).HasMaxLength(120);
+            e.Property(x => x.Credentials).HasMaxLength(120);
+        });
+
+        modelBuilder.Entity<SessionBooking>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.SessionId, x.UserId }).IsUnique();
+            e.Property(x => x.Status).HasDefaultValue(BookingStatus.Pending);
+
+            e.HasOne(x => x.Session).WithMany()
+                .HasForeignKey(x => x.SessionId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

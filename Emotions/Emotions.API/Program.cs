@@ -4,7 +4,9 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Emotions.Application.Interfaces;
 using Emotions.Application.Interfaces.Auth;
+using Emotions.Application.Pricing;
 using Emotions.Infrastructure.Auth;
+using Emotions.Infrastructure.BackgroundJobs;
 using Emotions.Infrastructure.Data;
 using Emotions.Infrastructure.Services;
 using Emotions.Infrastructure.SignalR;
@@ -34,10 +36,13 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // Domain services
 builder.Services.AddScoped<IJournalService, JournalService>();
 builder.Services.AddScoped<IUserService, UserService>();
-builder.Services.AddScoped<IVoiceRoomService, VoiceRoomService>();
+builder.Services.AddScoped<IRoomService, RoomService>();
 
 // Explicit OIDC provisioner (used only when you *choose* to provision)
 builder.Services.AddScoped<IUserProvisioner, OidcProvisioner>();
+builder.Services.AddScoped<IPremiumService, NoopPremiumService>();
+builder.Services.AddSingleton<IWaitlistPriorityCalculator, DefaultPriorityCalculator>();
+
 
 // ---------- Auth0 (OIDC) ----------
 var auth0Domain = builder.Configuration["Auth0:Domain"]; // e.g. dev-xxxx.us.auth0.com
@@ -193,7 +198,7 @@ builder.Services.AddHttpClient("AiService", (sp, client) =>
     client.Timeout = TimeSpan.FromSeconds(20);
 });
 
-builder.Services.AddSingleton<IVoicePresenceService>(sp =>
+builder.Services.AddSingleton<IPresenceService>(sp =>
 {
     var cfg = sp.GetRequiredService<IConfiguration>();
     var conn = cfg.GetConnectionString("Redis") ?? cfg["REDIS_URL"];
@@ -202,8 +207,15 @@ builder.Services.AddSingleton<IVoicePresenceService>(sp =>
     if (string.IsNullOrWhiteSpace(conn))
         throw new InvalidOperationException("Redis presence requires REDIS_URL/ConnectionString");
 
-    return new RedisVoicePresenceService(conn, prefix); // one implementation
+    return new RedisPresenceService(conn, prefix); // one implementation
 });
+
+builder.Services.Configure<NoShowReaperOptions>(cfg =>
+{
+    cfg.Grace = TimeSpan.FromMinutes(5);
+    cfg.Period = TimeSpan.FromSeconds(60);
+});
+builder.Services.AddHostedService<NoShowReaper>();
 
 var app = builder.Build();
 

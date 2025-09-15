@@ -1,6 +1,6 @@
-namespace Emotions.Application.DTOs.VoiceRooms;
+namespace Emotions.Application.DTOs.Rooms;
 
-public class VoiceRoomDetailDto : VoiceRoomSummaryDto
+public class RoomDetailDto : RoomSummaryDto
 {
     public string? Prompt { get; init; }
     public string? Topic { get; init; }
