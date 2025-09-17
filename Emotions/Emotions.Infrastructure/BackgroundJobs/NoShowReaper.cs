@@ -1,4 +1,5 @@
 using Emotions.Application.Interfaces;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -14,38 +15,42 @@ public sealed class NoShowReaperOptions
 
 public class NoShowReaper : BackgroundService
 {
-    private readonly IBookingsService _bookings;
+    private readonly IServiceProvider _sp;
     private readonly ILogger<NoShowReaper> _log;
     private readonly NoShowReaperOptions _opts;
 
     public NoShowReaper(
-        IBookingsService bookings,
+        IServiceProvider sp,
         IOptions<NoShowReaperOptions> opts,
         ILogger<NoShowReaper> log)
     {
-        _bookings = bookings;
+        _sp = sp;
         _log = log;
         _opts = opts.Value;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(_opts.Period);
-        while (await timer.WaitForNextTickAsync(stoppingToken))
+        while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                var changed = await _bookings.AutoReleaseNoShowsAsync(_opts.Grace, stoppingToken);
-                if (changed > 0)
-                    _log.LogInformation("NoShowReaper released/promoted {Count} bookings.", changed);
-            }
-            catch (OperationCanceledException)
-            {
-                /* shutting down */
+                using var scope = _sp.CreateScope();
+                var bookings = scope.ServiceProvider.GetRequiredService<IBookingsService>();
+                await bookings.AutoReleaseNoShowsAsync(_opts.Grace, stoppingToken);
             }
             catch (Exception ex)
             {
                 _log.LogError(ex, "NoShowReaper error");
+            }
+
+            try
+            {
+                await Task.Delay(_opts.Period, stoppingToken);
+            }
+            catch (TaskCanceledException)
+            {
+                /* shutting down */
             }
         }
     }

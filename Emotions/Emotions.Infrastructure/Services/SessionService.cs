@@ -15,6 +15,7 @@ public class SessionsService : ISessionsService
 {
     private readonly AppDbContext _db;
     private readonly IHubContext<VoiceHub, IVoiceClient> _hub; // assume existing
+    private const int MinBreakMinutes = 30;
 
     public SessionsService(AppDbContext db, IHubContext<VoiceHub, IVoiceClient> hub)
     {
@@ -62,8 +63,15 @@ public class SessionsService : ISessionsService
 
     public async Task<SessionDto> CreateAsync(CreateSessionRequest req, CancellationToken ct)
     {
-        var host = await _db.SessionHosts.FindAsync(new object?[] { req.HostId }, ct)
-                   ?? throw new InvalidOperationException("Host not found");
+        if (req.EndAt <= req.StartAt)
+            throw new ArgumentException("EndAt must be after StartAt.");
+
+        var host = await _db.SessionHosts
+                       .AsNoTracking()
+                       .FirstOrDefaultAsync(h => h.Id == req.HostId, ct)
+                   ?? throw new InvalidOperationException("Host not found.");
+
+        await EnsureNoHostOverlap(req.HostId, req.StartAt, req.EndAt, ct);
 
         var entity = new SupportSession
         {
@@ -77,22 +85,36 @@ public class SessionsService : ISessionsService
             EndAt = req.EndAt,
             Capacity = Math.Max(1, req.Capacity),
             AllowListeners = req.AllowListeners,
-            HostId = req.HostId,
+            HostId = host.Id, // use the fetched host
             TemplateId = req.TemplateId,
+            // Language = req.Language ?? host.DefaultLanguage ?? "en"   // if you add Language
         };
 
         _db.SupportSessions.Add(entity);
         await _db.SaveChangesAsync(ct);
+
         return entity.ToDto(0, 0);
     }
 
     public async Task PublishAsync(Guid sessionId, CancellationToken ct)
     {
-        var s = await _db.SupportSessions.Include(x => x.Host)
+        var s = await _db.SupportSessions
+                    .Include(x => x.Host) // keep if you need host metadata
                     .FirstOrDefaultAsync(x => x.Id == sessionId, ct)
                 ?? throw new InvalidOperationException("Session not found");
 
-        if (s.Status != SessionStatus.Draft) return;
+        if (s.Status == SessionStatus.Published)
+            return; // idempotent
+
+        if (s.Status != SessionStatus.Draft)
+            throw new InvalidOperationException("Only draft sessions can be published.");
+
+        // sanity + overlap guard
+        if (s.EndAt <= s.StartAt)
+            throw new InvalidOperationException("EndAt must be after StartAt.");
+
+        await EnsureNoHostOverlap(s.HostId, s.StartAt, s.EndAt, ct, excludeSessionId: s.Id);
+
         s.Status = SessionStatus.Published;
         s.PublishedAt = DateTime.UtcNow;
 
@@ -102,13 +124,26 @@ public class SessionsService : ISessionsService
 
     public async Task GoLiveAsync(Guid sessionId, Guid voiceRoomId, CancellationToken ct)
     {
-        var s = await _db.SupportSessions.FirstOrDefaultAsync(x => x.Id == sessionId, ct)
+        var s = await _db.SupportSessions
+                    .FirstOrDefaultAsync(x => x.Id == sessionId, ct)
                 ?? throw new InvalidOperationException("Session not found");
+
+        if (s.Status == SessionStatus.Live)
+            return; // already live
+
+        if (s.Status != SessionStatus.Published)
+            throw new InvalidOperationException("Only published sessions can go live.");
+
+        // sanity + overlap guard (exclude this session from the check)
+        if (s.EndAt <= s.StartAt)
+            throw new InvalidOperationException("EndAt must be after StartAt.");
+
+        await EnsureNoHostOverlap(s.HostId, s.StartAt, s.EndAt, ct, excludeSessionId: s.Id);
 
         s.Status = SessionStatus.Live;
         s.VoiceRoomId = voiceRoomId;
-        await _db.SaveChangesAsync(ct);
 
+        await _db.SaveChangesAsync(ct);
         await _hub.Clients.All.SessionLive(s.Id, voiceRoomId);
     }
 
@@ -117,11 +152,15 @@ public class SessionsService : ISessionsService
         var s = await _db.SupportSessions.FirstOrDefaultAsync(x => x.Id == sessionId, ct)
                 ?? throw new InvalidOperationException("Session not found");
 
+        if (s.Status != SessionStatus.Live) return; // idempotent
+
+        var roomId = s.VoiceRoomId;
         s.Status = SessionStatus.Completed;
         s.CompletedAt = DateTime.UtcNow;
         s.VoiceRoomId = null;
         await _db.SaveChangesAsync(ct);
 
+        // If you later add a voice-room lifecycle service, close it here using roomId
         await _hub.Clients.All.SessionCompleted(s.Id);
     }
 
@@ -136,5 +175,30 @@ public class SessionsService : ISessionsService
         var waits = await _db.SessionBookings.CountAsync(
             b => b.SessionId == sessionId && b.Status == BookingStatus.Waitlisted, ct);
         return s.ToDto(seats, waits);
+    }
+
+    private async Task EnsureNoHostOverlap(Guid hostId, DateTimeOffset start, DateTimeOffset end, CancellationToken ct,
+        Guid? excludeSessionId = null)
+    {
+        if (end <= start)
+            throw new InvalidOperationException("EndAt must be after StartAt.");
+
+        var windowStart = start.AddMinutes(-MinBreakMinutes);
+        var windowEnd = end.AddMinutes(MinBreakMinutes);
+
+        var conflict = await _db.SupportSessions.AnyAsync(s =>
+                s.HostId == hostId
+                // 👇 exclude the current session if provided
+                && (excludeSessionId == null || s.Id != excludeSessionId)
+                // only block against public runtime windows
+                && (s.Status == SessionStatus.Published || s.Status == SessionStatus.Live)
+                // interval overlap with buffer
+                && s.StartAt < windowEnd
+                && s.EndAt > windowStart,
+            ct);
+
+        if (conflict)
+            throw new InvalidOperationException(
+                $"Host must leave at least {MinBreakMinutes} minutes between sessions.");
     }
 }

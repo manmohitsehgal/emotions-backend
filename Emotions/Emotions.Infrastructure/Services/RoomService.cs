@@ -29,7 +29,7 @@ namespace Emotions.Infrastructure.Services
             var q = _db.VoiceRooms.AsNoTracking().Where(r => !r.IsDeleted);
 
             if (!string.IsNullOrWhiteSpace(query.Theme) &&
-                Enum.TryParse<VoiceRoomTheme>(query.Theme, true, out var theme))
+                Enum.TryParse<RoomTheme>(query.Theme, true, out var theme))
                 q = q.Where(r => r.Theme == theme);
 
 
@@ -38,10 +38,10 @@ namespace Emotions.Infrastructure.Services
 
 
             if (!string.IsNullOrWhiteSpace(query.Status) &&
-                Enum.TryParse<VoiceRoomStatus>(query.Status, true, out var status))
+                Enum.TryParse<RoomStatus>(query.Status, true, out var status))
                 q = q.Where(r => r.Status == status);
             else
-                q = q.Where(r => r.Status == VoiceRoomStatus.Live);
+                q = q.Where(r => r.Status == RoomStatus.Live);
 
 
             if (!string.IsNullOrWhiteSpace(query.Q))

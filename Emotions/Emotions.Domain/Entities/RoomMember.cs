@@ -1,10 +1,10 @@
 namespace Emotions.Domain.Entities;
 
-public class VoiceRoomMember
+public class RoomMember
 {
     public Guid Id { get; set; } // PK
     public Guid RoomId { get; set; }
-    public VoiceRoom Room { get; set; } = null!;
+    public Room Room { get; set; } = null!;
     public Guid UserId { get; set; }
 
     public string Name { get; set; } = null!; // required, 128

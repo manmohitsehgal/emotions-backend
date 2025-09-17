@@ -37,6 +37,8 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddScoped<IJournalService, JournalService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IRoomService, RoomService>();
+builder.Services.AddScoped<IBookingsService, BookingsService>();
+builder.Services.AddScoped<ISessionsService, SessionsService>();
 
 // Explicit OIDC provisioner (used only when you *choose* to provision)
 builder.Services.AddScoped<IUserProvisioner, OidcProvisioner>();
@@ -47,6 +49,9 @@ builder.Services.AddSingleton<IWaitlistPriorityCalculator, DefaultPriorityCalcul
 // ---------- Auth0 (OIDC) ----------
 var auth0Domain = builder.Configuration["Auth0:Domain"]; // e.g. dev-xxxx.us.auth0.com
 var auth0Audience = builder.Configuration["Auth0:Audience"]; // e.g. emotions0api
+var rolesClaim = "https://emotions.app/roles";
+var guidClaim = "https://emotions.app/user_guid";
+
 if (string.IsNullOrWhiteSpace(auth0Domain) || string.IsNullOrWhiteSpace(auth0Audience))
     throw new InvalidOperationException("Auth0:Domain and Auth0:Audience must be configured.");
 
@@ -74,10 +79,13 @@ builder.Services
             ValidateIssuerSigningKey = true,
 
             // Your Auth0 Action injects this custom GUID claim
-            NameClaimType = "https://emotions.app/user_guid",
+            RoleClaimType = rolesClaim,
+            //NameClaimType = "https://emotions.app/user_guid",
+            NameClaimType = ClaimTypes.NameIdentifier,
+
 
             ClockSkew = TimeSpan.FromSeconds(45),
-            RoleClaimType = "roles",
+            // RoleClaimType = "roles",
             ValidTypes = new[] { "at+jwt", "JWT" }
         };
 
@@ -125,8 +133,8 @@ builder.Services
 
             OnTokenValidated = ctx =>
             {
-                const string Key = "https://emotions.app/user_guid";
-                var guid = ctx.Principal?.FindFirst(Key)?.Value;
+                // const string Key = "https://emotions.app/user_guid";
+                var guid = ctx.Principal?.FindFirst(guidClaim)?.Value;
 
                 if (string.IsNullOrWhiteSpace(guid) || !Guid.TryParse(guid, out _))
                 {
@@ -142,7 +150,14 @@ builder.Services
         };
     });
 
-builder.Services.AddAuthorization();
+// builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("CanHost", p => p.RequireRole("Host", "Admin", "Therapist", "SocialWorker"));
+    options.AddPolicy("CanModerate", p => p.RequireRole("Moderator", "Host", "Admin"));
+    options.AddPolicy("AdminOnly", p => p.RequireRole("Admin"));
+    options.AddPolicy("UserOnly", p => p.RequireRole("User"));
+});
 
 // SignalR
 builder.Services.AddSignalR();
@@ -243,11 +258,6 @@ app.Use(async (ctx, next) =>
 
 app.UseAuthentication();
 app.UseAuthorization();
-
-// ❌ REMOVED: implicit auto-provision on every request
-// This was recreating “ghost users”.
-// DO NOT auto-provision from middleware.
-// If you need to provision, call an explicit endpoint instead.
 
 app.MapControllers();
 app.MapHub<VoiceHub>("/hub/voice");

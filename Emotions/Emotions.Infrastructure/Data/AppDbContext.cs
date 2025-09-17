@@ -12,11 +12,11 @@ public class AppDbContext : DbContext
     }
 
     // --- DbSets ---
-    public DbSet<VoiceRoom> VoiceRooms { get; set; } = null!;
+    public DbSet<Room> VoiceRooms { get; set; } = null!;
     public DbSet<User> Users { get; set; } = null!;
     public DbSet<JournalEntry> JournalEntries => Set<JournalEntry>();
-    public DbSet<VoiceRoomMember> VoiceRoomMembers => Set<VoiceRoomMember>();
-    public DbSet<VoiceRoomConnection> VoiceRoomConnections => Set<VoiceRoomConnection>();
+    public DbSet<RoomMember> RoomMembers => Set<RoomMember>();
+    public DbSet<RoomConnection> VoiceRoomConnections => Set<RoomConnection>();
     public DbSet<Interest> Interests => Set<Interest>();
     public DbSet<UserInterest> UserInterests => Set<UserInterest>();
     public DbSet<SupportSession> SupportSessions => Set<SupportSession>();
@@ -29,7 +29,7 @@ public class AppDbContext : DbContext
         base.OnModelCreating(modelBuilder);
 
         // ---------------- VoiceRoom ----------------
-        modelBuilder.Entity<VoiceRoom>(e =>
+        modelBuilder.Entity<Room>(e =>
         {
             e.HasKey(x => x.Id);
 
@@ -56,8 +56,8 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
-        // --------------- VoiceRoomMember (surrogate Id PK) ---------------
-        modelBuilder.Entity<VoiceRoomMember>(e =>
+        // --------------- RoomMember (surrogate Id PK) ---------------
+        modelBuilder.Entity<RoomMember>(e =>
         {
             e.HasKey(x => x.Id);
 
@@ -78,7 +78,7 @@ public class AppDbContext : DbContext
         });
 
         // --------------- VoiceRoomConnection ---------------
-        modelBuilder.Entity<VoiceRoomConnection>(e =>
+        modelBuilder.Entity<RoomConnection>(e =>
         {
             e.HasKey(x => x.Id);
 
@@ -193,8 +193,9 @@ public class AppDbContext : DbContext
             e.HasOne(x => x.Host).WithMany().HasForeignKey(x => x.HostId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            e.HasOne(x => x.VoiceRoom).WithMany().HasForeignKey(x => x.VoiceRoomId)
+            e.HasOne(x => x.Room).WithMany().HasForeignKey(x => x.VoiceRoomId)
                 .OnDelete(DeleteBehavior.SetNull);
+            e.Property(x => x.Language).IsRequired().HasMaxLength(10); // if added
         });
 
         modelBuilder.Entity<SessionTemplate>(e =>

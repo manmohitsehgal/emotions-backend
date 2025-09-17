@@ -16,7 +16,7 @@ public class SupportSession
     public DateTimeOffset EndAt { get; set; }
     public int Capacity { get; set; } = 15; // seated talkers
     public bool AllowListeners { get; set; } = true; // listen‑only overflow
-
+    public string Language { get; set; } = "en";
 
     public Guid? TemplateId { get; set; }
     public SessionTemplate? Template { get; set; }
@@ -29,7 +29,7 @@ public class SupportSession
 
 // VoiceRoom mapping (reusing hub infra)
     public Guid? VoiceRoomId { get; set; }
-    public VoiceRoom? VoiceRoom { get; set; }
+    public Room? Room { get; set; }
 
 
 // Audit

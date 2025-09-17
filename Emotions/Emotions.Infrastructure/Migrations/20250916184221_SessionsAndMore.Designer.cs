@@ -3,6 +3,7 @@ using System;
 using Emotions.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Emotions.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250916184221_SessionsAndMore")]
+    partial class SessionsAndMore
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -130,167 +133,6 @@ namespace Emotions.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("JournalEntries");
-                });
-
-            modelBuilder.Entity("Emotions.Domain.Entities.Room", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(2048)
-                        .HasColumnType("character varying(2048)");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Language")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .HasColumnType("character varying(10)");
-
-                    b.Property<DateTimeOffset?>("LastActiveAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int?>("MaxParticipants")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Prompt")
-                        .HasMaxLength(240)
-                        .HasColumnType("character varying(240)");
-
-                    b.Property<byte[]>("RowVersion")
-                        .IsConcurrencyToken()
-                        .IsRequired()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("bytea");
-
-                    b.Property<int>("SpeakPolicy")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("Theme")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("ThumbnailUrl")
-                        .HasMaxLength(2083)
-                        .HasColumnType("character varying(2083)");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
-                    b.Property<string>("Topic")
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("LastActiveAt");
-
-                    b.HasIndex("Status");
-
-                    b.HasIndex("Status", "LastActiveAt");
-
-                    b.ToTable("VoiceRooms");
-                });
-
-            modelBuilder.Entity("Emotions.Domain.Entities.RoomConnection", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("ConnectedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("NOW() AT TIME ZONE 'UTC'");
-
-                    b.Property<DateTimeOffset?>("DisconnectedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("HubConnectionId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<bool>("IsMuted")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("IsVideoOn")
-                        .HasColumnType("boolean");
-
-                    b.Property<Guid>("RoomId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Username")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("HubConnectionId")
-                        .IsUnique();
-
-                    b.HasIndex("RoomId", "DisconnectedAt");
-
-                    b.HasIndex("RoomId", "UserId");
-
-                    b.ToTable("VoiceRoomConnections");
-                });
-
-            modelBuilder.Entity("Emotions.Domain.Entities.RoomMember", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("JoinedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("NOW() AT TIME ZONE 'UTC'");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("Role")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<Guid>("RoomId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("NOW() AT TIME ZONE 'UTC'");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RoomId");
-
-                    b.HasIndex("RoomId", "UserId")
-                        .IsUnique();
-
-                    b.ToTable("RoomMembers");
                 });
 
             modelBuilder.Entity("Emotions.Domain.Entities.SessionBooking", b =>
@@ -426,11 +268,6 @@ namespace Emotions.Infrastructure.Migrations
                     b.Property<Guid>("HostId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("Language")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .HasColumnType("character varying(10)");
-
                     b.Property<DateTime?>("PublishedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -550,26 +387,165 @@ namespace Emotions.Infrastructure.Migrations
                     b.ToTable("UserInterests");
                 });
 
-            modelBuilder.Entity("Emotions.Domain.Entities.RoomConnection", b =>
+            modelBuilder.Entity("Emotions.Domain.Entities.VoiceRoom", b =>
                 {
-                    b.HasOne("Emotions.Domain.Entities.Room", "Room")
-                        .WithMany("Connections")
-                        .HasForeignKey("RoomId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
 
-                    b.Navigation("Room");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<DateTimeOffset?>("LastActiveAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("MaxParticipants")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Prompt")
+                        .HasMaxLength(240)
+                        .HasColumnType("character varying(240)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("bytea");
+
+                    b.Property<int>("SpeakPolicy")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Theme")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ThumbnailUrl")
+                        .HasMaxLength(2083)
+                        .HasColumnType("character varying(2083)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("Topic")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LastActiveAt");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("Status", "LastActiveAt");
+
+                    b.ToTable("VoiceRooms");
                 });
 
-            modelBuilder.Entity("Emotions.Domain.Entities.RoomMember", b =>
+            modelBuilder.Entity("Emotions.Domain.Entities.VoiceRoomConnection", b =>
                 {
-                    b.HasOne("Emotions.Domain.Entities.Room", "Room")
-                        .WithMany("Members")
-                        .HasForeignKey("RoomId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
 
-                    b.Navigation("Room");
+                    b.Property<DateTimeOffset>("ConnectedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("NOW() AT TIME ZONE 'UTC'");
+
+                    b.Property<DateTimeOffset?>("DisconnectedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("HubConnectionId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsMuted")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsVideoOn")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("RoomId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("HubConnectionId")
+                        .IsUnique();
+
+                    b.HasIndex("RoomId", "DisconnectedAt");
+
+                    b.HasIndex("RoomId", "UserId");
+
+                    b.ToTable("VoiceRoomConnections");
+                });
+
+            modelBuilder.Entity("Emotions.Domain.Entities.VoiceRoomMember", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("JoinedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("NOW() AT TIME ZONE 'UTC'");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("RoomId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("NOW() AT TIME ZONE 'UTC'");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RoomId");
+
+                    b.HasIndex("RoomId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("VoiceRoomMembers");
                 });
 
             modelBuilder.Entity("Emotions.Domain.Entities.SessionBooking", b =>
@@ -595,21 +571,21 @@ namespace Emotions.Infrastructure.Migrations
                         .WithMany()
                         .HasForeignKey("TemplateId");
 
-                    b.HasOne("Emotions.Domain.Entities.Room", "Room")
+                    b.HasOne("Emotions.Domain.Entities.VoiceRoom", "VoiceRoom")
                         .WithMany()
                         .HasForeignKey("VoiceRoomId")
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Host");
 
-                    b.Navigation("Room");
-
                     b.Navigation("Template");
+
+                    b.Navigation("VoiceRoom");
                 });
 
             modelBuilder.Entity("Emotions.Domain.Entities.User", b =>
                 {
-                    b.HasOne("Emotions.Domain.Entities.Room", "VoiceRoom")
+                    b.HasOne("Emotions.Domain.Entities.VoiceRoom", "VoiceRoom")
                         .WithMany()
                         .HasForeignKey("VoiceRoomId")
                         .OnDelete(DeleteBehavior.SetNull);
@@ -636,21 +612,43 @@ namespace Emotions.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Emotions.Domain.Entities.VoiceRoomConnection", b =>
+                {
+                    b.HasOne("Emotions.Domain.Entities.VoiceRoom", "Room")
+                        .WithMany("Connections")
+                        .HasForeignKey("RoomId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Room");
+                });
+
+            modelBuilder.Entity("Emotions.Domain.Entities.VoiceRoomMember", b =>
+                {
+                    b.HasOne("Emotions.Domain.Entities.VoiceRoom", "Room")
+                        .WithMany("Members")
+                        .HasForeignKey("RoomId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Room");
+                });
+
             modelBuilder.Entity("Emotions.Domain.Entities.Interest", b =>
                 {
                     b.Navigation("UserInterests");
                 });
 
-            modelBuilder.Entity("Emotions.Domain.Entities.Room", b =>
+            modelBuilder.Entity("Emotions.Domain.Entities.User", b =>
+                {
+                    b.Navigation("UserInterests");
+                });
+
+            modelBuilder.Entity("Emotions.Domain.Entities.VoiceRoom", b =>
                 {
                     b.Navigation("Connections");
 
                     b.Navigation("Members");
-                });
-
-            modelBuilder.Entity("Emotions.Domain.Entities.User", b =>
-                {
-                    b.Navigation("UserInterests");
                 });
 #pragma warning restore 612, 618
         }

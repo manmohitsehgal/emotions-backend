@@ -45,10 +45,11 @@ public class SessionsController : ControllerBase
 
     [HttpPost("{id:guid}/go-live")]
     [Authorize(Roles = "Host,Admin")]
-    public async Task<IActionResult> GoLive(Guid id, [FromQuery] Guid voiceRoomId, CancellationToken ct)
+    public async Task<ActionResult<object>> GoLive(Guid id, CancellationToken ct)
     {
-        await _sessions.GoLiveAsync(id, voiceRoomId, ct);
-        return NoContent();
+        var voiceRoomId = Guid.NewGuid(); // server-side creation
+        await _sessions.GoLiveAsync(id, voiceRoomId, ct); // reuse your existing method
+        return Ok(new { voiceRoomId }); // let the client navigate
     }
 
     [HttpPost("{id:guid}/complete")]
