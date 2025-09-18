@@ -6,6 +6,7 @@ using Emotions.Domain.Entities;
 using Emotions.Domain.Enums;
 using Emotions.Infrastructure.Data;
 using Emotions.Infrastructure.SignalR;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,12 +15,14 @@ namespace Emotions.Infrastructure.Services;
 public class SessionsService : ISessionsService
 {
     private readonly AppDbContext _db;
+    private readonly IHttpContextAccessor _http;
     private readonly IHubContext<VoiceHub, IVoiceClient> _hub; // assume existing
     private const int MinBreakMinutes = 30;
 
-    public SessionsService(AppDbContext db, IHubContext<VoiceHub, IVoiceClient> hub)
+    public SessionsService(AppDbContext db, IHubContext<VoiceHub, IVoiceClient> hub, IHttpContextAccessor http)
     {
         _db = db;
+        _http = http;
         _hub = hub;
     }
 
@@ -63,6 +66,8 @@ public class SessionsService : ISessionsService
 
     public async Task<SessionDto> CreateAsync(CreateSessionRequest req, CancellationToken ct)
     {
+        var hostId = await ResolveHostIdOrThrow(ct);
+
         if (req.EndAt <= req.StartAt)
             throw new ArgumentException("EndAt must be after StartAt.");
 
@@ -87,7 +92,7 @@ public class SessionsService : ISessionsService
             AllowListeners = req.AllowListeners,
             HostId = host.Id, // use the fetched host
             TemplateId = req.TemplateId,
-            // Language = req.Language ?? host.DefaultLanguage ?? "en"   // if you add Language
+            //Language = req.Language ?? host.DefaultLanguage ?? "en"   // if you add Language
         };
 
         _db.SupportSessions.Add(entity);
@@ -175,6 +180,31 @@ public class SessionsService : ISessionsService
         var waits = await _db.SessionBookings.CountAsync(
             b => b.SessionId == sessionId && b.Status == BookingStatus.Waitlisted, ct);
         return s.ToDto(seats, waits);
+    }
+
+    private async Task<Guid> ResolveHostIdOrThrow(CancellationToken ct)
+    {
+        // 1) Pull the external subject from the access token
+        var sub = _http.HttpContext?.User?.FindFirst("sub")?.Value
+                  ?? _http.HttpContext?.User?.FindFirst("user_id")?.Value;
+        if (string.IsNullOrEmpty(sub))
+            throw new InvalidOperationException("User identity is missing.");
+
+        // 2) Join SessionHosts → Users by UserId and match Users.ExternalId to sub
+        var hostId = await _db.SessionHosts
+            .Where(h => !h.IsAi && h.UserId != null)
+            .Join(_db.Users,
+                h => h.UserId,
+                u => u.Id,
+                (h, u) => new { h.Id, u.ExternalId })
+            .Where(x => x.ExternalId == sub)
+            .Select(x => x.Id)
+            .SingleOrDefaultAsync(ct);
+
+        if (hostId == Guid.Empty)
+            throw new InvalidOperationException("Host profile not found for the current user.");
+
+        return hostId;
     }
 
     private async Task EnsureNoHostOverlap(Guid hostId, DateTimeOffset start, DateTimeOffset end, CancellationToken ct,

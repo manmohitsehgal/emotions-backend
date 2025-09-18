@@ -210,6 +210,7 @@ public class AppDbContext : DbContext
             e.HasKey(x => x.Id);
             e.Property(x => x.DisplayName).HasMaxLength(120);
             e.Property(x => x.Credentials).HasMaxLength(120);
+            e.HasIndex(x => x.UserId).IsUnique().HasFilter("[AuthUserId] IS NOT NULL");
         });
 
         modelBuilder.Entity<SessionBooking>(e =>

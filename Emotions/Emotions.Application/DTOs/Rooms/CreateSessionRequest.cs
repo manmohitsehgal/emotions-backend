@@ -12,4 +12,5 @@ public sealed record CreateSessionRequest(
     int Capacity,
     bool AllowListeners,
     Guid HostId,
-    Guid? TemplateId);
+    Guid? TemplateId,
+    string Language);
