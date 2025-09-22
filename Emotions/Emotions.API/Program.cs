@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Emotions.Application.Interfaces;
 using Emotions.Application.Interfaces.Auth;
+using Emotions.Application.Interfaces.Security;
 using Emotions.Application.Pricing;
 using Emotions.Infrastructure.Auth;
 using Emotions.Infrastructure.BackgroundJobs;
@@ -39,11 +40,14 @@ builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IRoomService, RoomService>();
 builder.Services.AddScoped<IBookingsService, BookingsService>();
 builder.Services.AddScoped<ISessionsService, SessionsService>();
+builder.Services.AddScoped<ITherapyChatService, TherapyChatService>();
+builder.Services.AddScoped<IAiService, AiService>();
 
 // Explicit OIDC provisioner (used only when you *choose* to provision)
 builder.Services.AddScoped<IUserProvisioner, OidcProvisioner>();
 builder.Services.AddScoped<IPremiumService, NoopPremiumService>();
 builder.Services.AddSingleton<IWaitlistPriorityCalculator, DefaultPriorityCalculator>();
+builder.Services.AddSingleton<IEncryptionService, AesGcmEncryptionService>();
 
 
 // ---------- Auth0 (OIDC) ----------

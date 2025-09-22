@@ -23,10 +23,17 @@ public class AppDbContext : DbContext
     public DbSet<SessionTemplate> SessionTemplates => Set<SessionTemplate>();
     public DbSet<SessionHost> SessionHosts => Set<SessionHost>();
     public DbSet<SessionBooking> SessionBookings => Set<SessionBooking>();
+    public DbSet<TherapyConversation> TherapyConversations => Set<TherapyConversation>();
+    public DbSet<TherapyMessage> TherapyMessages => Set<TherapyMessage>();
+    public DbSet<TherapyActionItems> TherapyActionItem => Set<TherapyActionItems>();
+    public DbSet<SafetyEvent> SafetyEvents => Set<SafetyEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<JournalEntry>()
+            .HasIndex(j => new { j.UserId, j.CreatedAt });
 
         // ---------------- VoiceRoom ----------------
         modelBuilder.Entity<Room>(e =>
@@ -210,7 +217,8 @@ public class AppDbContext : DbContext
             e.HasKey(x => x.Id);
             e.Property(x => x.DisplayName).HasMaxLength(120);
             e.Property(x => x.Credentials).HasMaxLength(120);
-            e.HasIndex(x => x.UserId).IsUnique().HasFilter("[AuthUserId] IS NOT NULL");
+
+            e.HasIndex(x => x.UserId).IsUnique(); // <- no HasFilter()
         });
 
         modelBuilder.Entity<SessionBooking>(e =>
@@ -223,5 +231,10 @@ public class AppDbContext : DbContext
                 .HasForeignKey(x => x.SessionId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
+
+        modelBuilder.Entity<TherapyMessage>()
+            .HasIndex(m => new { m.ConversationId, m.CreatedAt });
+        modelBuilder.Entity<SafetyEvent>()
+            .HasIndex(s => new { s.ConversationId, s.TriggeredAt });
     }
 }

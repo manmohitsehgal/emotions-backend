@@ -44,7 +44,12 @@ public class UsersController : ControllerBase
             HasCompletedOnboarding = user.HasCompletedOnboarding,
             Interests = interests
         };
-        return Ok(dto);
+
+        // ✅ Add roles from the token (namespaced claim configured in Program.cs)
+        var roles = User.FindAll("https://emotions.app/roles").Select(c => c.Value).ToArray();
+
+        return Ok(new
+            { dto.Id, dto.Username, dto.Email, dto.AnalyticsOptIn, dto.HasCompletedOnboarding, dto.Interests, roles });
     }
 
     // POST /api/users/provision — idempotent create after interactive login

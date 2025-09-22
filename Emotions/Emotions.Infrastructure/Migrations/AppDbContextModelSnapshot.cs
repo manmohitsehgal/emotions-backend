@@ -119,15 +119,25 @@ namespace Emotions.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("Text")
+                    b.Property<bool>("IsPrivate")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("TextEncrypted")
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("UserId")
-                        .IsRequired()
+                    b.Property<string>("Title")
                         .HasColumnType("text");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("UserId", "CreatedAt");
 
                     b.ToTable("JournalEntries");
                 });
@@ -293,6 +303,37 @@ namespace Emotions.Infrastructure.Migrations
                     b.ToTable("RoomMembers");
                 });
 
+            modelBuilder.Entity("Emotions.Domain.Entities.SafetyEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Handled")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("Level")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("MessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Region")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("TriggeredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConversationId", "TriggeredAt");
+
+                    b.ToTable("SafetyEvents");
+                });
+
             modelBuilder.Entity("Emotions.Domain.Entities.SessionBooking", b =>
                 {
                     b.Property<Guid>("Id")
@@ -360,6 +401,9 @@ namespace Emotions.Infrastructure.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
 
                     b.ToTable("SessionHosts");
                 });
@@ -470,6 +514,109 @@ namespace Emotions.Infrastructure.Migrations
                     b.HasIndex("VoiceRoomId");
 
                     b.ToTable("SupportSessions");
+                });
+
+            modelBuilder.Entity("Emotions.Domain.Entities.TherapyActionItems", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Details")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("DueAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("MessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("TherapyActionItem");
+                });
+
+            modelBuilder.Entity("Emotions.Domain.Entities.TherapyConversation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ClosedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IncludeJournal")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsPremiumSnapshot")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("Mode")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SafetyLevel")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("TherapyConversations");
+                });
+
+            modelBuilder.Entity("Emotions.Domain.Entities.TherapyMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AuthorType")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsPrivate")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Model")
+                        .HasColumnType("text");
+
+                    b.Property<string>("TextEncrypted")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int?>("TokensIn")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("TokensOut")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConversationId", "CreatedAt");
+
+                    b.ToTable("TherapyMessages");
                 });
 
             modelBuilder.Entity("Emotions.Domain.Entities.User", b =>
@@ -605,6 +752,17 @@ namespace Emotions.Infrastructure.Migrations
                     b.Navigation("Room");
 
                     b.Navigation("Template");
+                });
+
+            modelBuilder.Entity("Emotions.Domain.Entities.TherapyMessage", b =>
+                {
+                    b.HasOne("Emotions.Domain.Entities.TherapyConversation", "Conversation")
+                        .WithMany()
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Conversation");
                 });
 
             modelBuilder.Entity("Emotions.Domain.Entities.User", b =>

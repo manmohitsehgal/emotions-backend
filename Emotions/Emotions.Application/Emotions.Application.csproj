@@ -10,8 +10,4 @@
         <ProjectReference Include="..\Emotions.Domain\Emotions.Domain.csproj"/>
     </ItemGroup>
 
-    <ItemGroup>
-        <Folder Include="DTOs\Auth\"/>
-    </ItemGroup>
-
 </Project>
