@@ -9,6 +9,7 @@ using Emotions.Application.Pricing;
 using Emotions.Infrastructure.Auth;
 using Emotions.Infrastructure.BackgroundJobs;
 using Emotions.Infrastructure.Data;
+using Emotions.Infrastructure.Security;
 using Emotions.Infrastructure.Services;
 using Emotions.Infrastructure.SignalR;
 using Emotions.Infrastructure.SignalR.Presence;
@@ -17,6 +18,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.Net.Http.Headers;
 using Microsoft.OpenApi.Models;
+using OpenAI;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -41,6 +43,7 @@ builder.Services.AddScoped<IRoomService, RoomService>();
 builder.Services.AddScoped<IBookingsService, BookingsService>();
 builder.Services.AddScoped<ISessionsService, SessionsService>();
 builder.Services.AddScoped<ITherapyChatService, TherapyChatService>();
+builder.Services.AddScoped<ITherapySummaryService, TherapySummaryService>();
 builder.Services.AddScoped<IAiService, AiService>();
 
 // Explicit OIDC provisioner (used only when you *choose* to provision)
@@ -48,6 +51,7 @@ builder.Services.AddScoped<IUserProvisioner, OidcProvisioner>();
 builder.Services.AddScoped<IPremiumService, NoopPremiumService>();
 builder.Services.AddSingleton<IWaitlistPriorityCalculator, DefaultPriorityCalculator>();
 builder.Services.AddSingleton<IEncryptionService, AesGcmEncryptionService>();
+builder.Services.AddSingleton<ITextProtector, NoOpTextProtector>();
 
 
 // ---------- Auth0 (OIDC) ----------
@@ -215,6 +219,19 @@ builder.Services.AddHttpClient("AiService", (sp, client) =>
     var baseUrl = cfg["AiService:BaseUrl"] ?? "http://localhost:8000";
     client.BaseAddress = new Uri(baseUrl);
     client.Timeout = TimeSpan.FromSeconds(20);
+});
+
+builder.Services.AddSingleton(sp =>
+{
+    var apiKey = builder.Configuration["OpenAI:ApiKey"]
+                 ?? throw new InvalidOperationException("Missing OpenAI:ApiKey");
+    return new OpenAIClient(apiKey); // <-- satisfies TherapyChatService ctor
+});
+
+builder.Services.AddSingleton(sp =>
+{
+    var openAi = sp.GetRequiredService<OpenAIClient>();
+    return openAi.GetChatClient("gpt-4o-mini"); // <-- for services that take ChatClient
 });
 
 builder.Services.AddSingleton<IPresenceService>(sp =>

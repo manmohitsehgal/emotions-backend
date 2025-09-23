@@ -1,151 +1,161 @@
 using Emotions.Application.DTOs.Therapy;
 using Emotions.Application.Interfaces;
-using Emotions.Application.Interfaces.AI.Records;
 using Emotions.Application.Interfaces.Security;
 using Emotions.Domain.Entities;
 using Emotions.Domain.Enums;
 using Emotions.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using OpenAI;
+using OpenAI.Chat;
 
 namespace Emotions.Infrastructure.Services;
 
 public sealed class TherapyChatService : ITherapyChatService
 {
+    private readonly ChatClient _chat;
     private readonly AppDbContext _db;
-    private readonly IEncryptionService _crypto;
-    private readonly IJournalService _journal;
-    private readonly IAiService _ai;
+    private readonly ITextProtector _protector;
 
-    public TherapyChatService(AppDbContext db, IEncryptionService crypto, IJournalService journal, IAiService ai)
+    private const string Model = "gpt-4o-mini";
+
+    private const string SystemPrompt =
+        "You are a supportive, CBT-informed assistant. Be empathetic, concise, and suggest one small actionable next step when helpful.";
+
+    private const string Fallback =
+        "Thanks for sharing. I’m here with you. What feels most present right now?";
+
+    public TherapyChatService(OpenAIClient client, AppDbContext db, ITextProtector protector)
     {
+        _chat = client.GetChatClient(Model);
         _db = db;
-        _crypto = crypto;
-        _journal = journal;
-        _ai = ai;
+        _protector = protector;
     }
 
-    public async Task<MessageResponse> SendAsync(Guid conversationId, Guid userId, string text,
-        CancellationToken ct = default)
+    public async Task<MessageResponse> SendAsync(Guid conversationId, Guid userId, string userText,
+        CancellationToken ct)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(text);
+        var now = DateTime.UtcNow;
 
-        var convo = await _db.TherapyConversations
-            .FirstOrDefaultAsync(c => c.Id == conversationId && c.UserId == userId, ct);
-        if (convo is null) throw new KeyNotFoundException("Conversation not found.");
-
-        // 1) Save user message
-        var userMsg = new TherapyMessage
+        // Persist user msg
+        _db.TherapyMessages.Add(new TherapyMessage
         {
             Id = Guid.NewGuid(),
             ConversationId = conversationId,
             AuthorType = AuthorType.User,
-            TextEncrypted = await _crypto.EncryptAsync(text, ct),
-            CreatedAt = DateTime.UtcNow
-        };
-        _db.TherapyMessages.Add(userMsg);
+            TextEncrypted = _protector.Protect(userText ?? ""),
+            CreatedAt = now,
+            IsPrivate = false
+        });
         await _db.SaveChangesAsync(ct);
 
-        // 2) Optional journal context
-        string? journalContext = convo.IncludeJournal
-            ? await _journal.BuildRecentContextAsync(convo.UserId, ct: ct)
-            : null;
-
-        // 3) Safety check
-        var safety = await _ai.SafetyCheckAsync(text, ct);
-        if (string.Equals(safety.level, "Crisis", StringComparison.OrdinalIgnoreCase))
+        // Safety triage
+        var severity = SafetyHeuristics.Classify(userText);
+        if (severity == SafetySeverity.Crisis)
         {
-            _db.SafetyEvents.Add(new SafetyEvent
-            {
-                Id = Guid.NewGuid(),
-                ConversationId = conversationId,
-                MessageId = userMsg.Id,
-                Level = SafetyLevel.Crisis,
-                TriggeredAt = DateTime.UtcNow
-            });
-            convo.SafetyLevel = SafetyLevel.Crisis;
-            await _db.SaveChangesAsync(ct);
-        }
-        else if (string.Equals(safety.level, "Watch", StringComparison.OrdinalIgnoreCase))
-        {
-            convo.SafetyLevel = SafetyLevel.Watch;
-            await _db.SaveChangesAsync(ct);
+            var crisis =
+                "I’m really sorry you’re feeling this way. If you’re in immediate danger, please call your local emergency number now. In the U.S., you can dial or text 988 to reach the Suicide & Crisis Lifeline. Would you like a grounding exercise?";
+            return await PersistAssistantAndReturn(conversationId, crisis, now, ct);
         }
 
-        // 4) AI response  ✅ use object initializer
-        var aiResp = await _ai.TherapyRespondAsync(
-            new AiTurnRequest
-            {
-                ConversationId = conversationId,
-                UserText = text,
-                Mode = convo.Mode.ToString(), // or "Vent" for MVP
-                JournalContext = journalContext
-            },
-            ct);
-
-        // 5) Save assistant message
-        var botMsg = new TherapyMessage
-        {
-            Id = Guid.NewGuid(),
-            ConversationId = conversationId,
-            AuthorType = AuthorType.Assistant,
-            TextEncrypted = await _crypto.EncryptAsync(aiResp.Text, ct),
-            CreatedAt = DateTime.UtcNow,
-            Model = aiResp.Model,
-            TokensIn = aiResp.TokensIn,
-            TokensOut = aiResp.TokensOut
-        };
-        _db.TherapyMessages.Add(botMsg);
-        await _db.SaveChangesAsync(ct);
-
-        return new MessageResponse(botMsg.Id, "assistant", aiResp.Text, botMsg.CreatedAt);
-    }
-
-    public async Task<SummaryResponse> SummarizeAsync(Guid conversationId, Guid userId, int lastK = 20,
-        CancellationToken ct = default)
-    {
-        var convo = await _db.TherapyConversations
-            .FirstOrDefaultAsync(c => c.Id == conversationId && c.UserId == userId, ct);
-        if (convo is null) throw new KeyNotFoundException("Conversation not found.");
-
-        var msgs = await _db.TherapyMessages
+        // Context: last 8 msgs
+        var history = await _db.TherapyMessages
             .Where(m => m.ConversationId == conversationId)
             .OrderByDescending(m => m.CreatedAt)
-            .Take(lastK)
+            .Take(8)
+            .OrderBy(m => m.CreatedAt)
+            .Select(m => new { m.AuthorType, m.TextEncrypted })
             .ToListAsync(ct);
 
-        if (msgs.Count == 0) throw new InvalidOperationException("No messages to summarize.");
-
-        var transcript = new List<(string role, string text)>(msgs.Count);
-        foreach (var m in msgs.OrderBy(m => m.CreatedAt))
+        var msgs = new List<ChatMessage>
         {
-            var plain = await _crypto.DecryptAsync(m.TextEncrypted, ct);
-            transcript.Add((m.AuthorType.ToString().ToLowerInvariant(), plain));
+            ChatMessage.CreateSystemMessage(SystemPrompt)
+        };
+
+        foreach (var h in history)
+        {
+            var content = _protector.Unprotect(h.TextEncrypted ?? "");
+            msgs.Add(h.AuthorType == AuthorType.User
+                ? ChatMessage.CreateUserMessage(content)
+                : ChatMessage.CreateAssistantMessage(content));
         }
 
-        // ✅ if AiSummaryRequest is also a POCO, use initializer
-        var ai = await _ai.TherapySummarizeAsync(
-            new AiSummaryRequest
-            {
-                ConversationId = conversationId,
-                Transcript = transcript
-            },
-            ct);
+        msgs.Add(ChatMessage.CreateUserMessage(userText ?? ""));
 
-        if (!string.IsNullOrWhiteSpace(ai.ActionTitle))
+        // Call OpenAI
+        string assistant;
+        int? tokensIn = null, tokensOut = null;
+
+        try
         {
-            var anchor = msgs.Last();
-            // ✅ DbSet name likely plural
-            _db.TherapyActionItem.Add(new TherapyActionItems
-            {
-                Id = Guid.NewGuid(),
-                ConversationId = conversationId,
-                MessageId = anchor.Id,
-                Title = ai.ActionTitle!,
-                Details = ai.ActionDetails
-            });
-            await _db.SaveChangesAsync(ct);
+            var result = await _chat.CompleteChatAsync(messages: msgs, cancellationToken: ct);
+            var completion = result.Value; // ChatCompletion
+            assistant = completion.Content[0].Text;
+            // tokensIn = cc?.Usage?.InputTokenCount;
+            // tokensOut = cc?.Usage?.OutputTokenCount;
+        }
+        catch (Exception exception)
+        {
+            Console.WriteLine(exception);
+            assistant = "";
         }
 
-        return new SummaryResponse(ai.Summary, ai.ActionTitle, ai.ActionDetails);
+        if (string.IsNullOrWhiteSpace(assistant))
+            assistant = Fallback;
+
+        return await PersistAssistantAndReturn(conversationId, assistant, DateTime.UtcNow, ct, tokensIn, tokensOut);
     }
+
+    private async Task<MessageResponse> PersistAssistantAndReturn(
+        Guid conversationId,
+        string text,
+        DateTime createdAt,
+        CancellationToken ct,
+        int? tokensIn = null,
+        int? tokensOut = null)
+    {
+        var id = Guid.NewGuid();
+
+        _db.TherapyMessages.Add(new TherapyMessage
+        {
+            Id = id,
+            ConversationId = conversationId,
+            AuthorType = AuthorType.Therapist,
+            TextEncrypted = _protector.Protect(text ?? ""),
+            CreatedAt = createdAt,
+            IsPrivate = false,
+            Model = Model,
+            TokensIn = tokensIn,
+            TokensOut = tokensOut
+        });
+
+        await _db.SaveChangesAsync(ct);
+
+        return new MessageResponse
+        {
+            Id = id,
+            Role = "therapist",
+            Text = text,
+            CreatedAt = createdAt
+        };
+    }
+}
+
+internal static class SafetyHeuristics
+{
+    public static SafetySeverity Classify(string? t)
+    {
+        t = (t ?? "").ToLowerInvariant();
+        if (t.Contains("kill myself") || t.Contains("suicide") || t.Contains("end my life") || t.Contains("overdose"))
+            return SafetySeverity.Crisis;
+        if (t.Contains("no point") || t.Contains("hopeless"))
+            return SafetySeverity.Concern;
+        return SafetySeverity.Normal;
+    }
+}
+
+internal enum SafetySeverity
+{
+    Normal,
+    Concern,
+    Crisis
 }
