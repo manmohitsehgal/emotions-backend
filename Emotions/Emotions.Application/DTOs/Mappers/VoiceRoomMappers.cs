@@ -1,33 +1,33 @@
-using Emotions.Application.DTOs.VoiceRooms;
+using Emotions.Application.DTOs.Rooms;
 using Emotions.Domain.Entities;
 
 namespace Emotions.Application.DTOs.Mappers
 {
     public static class VoiceRoomMappers
     {
-        public static VoiceRoomSummaryDto ToSummary(this VoiceRoom r, int? approxMemberCount = null) => new()
+        public static RoomSummaryDto ToSummary(this Room r, int? approxMemberCount = null) => new()
         {
             Id = r.Id,
             Title = r.Title,
             Theme = r.Theme.ToString().ToLowerInvariant(),
-            IsLive = r.Status == VoiceRoomStatus.Live && !r.IsDeleted,
+            IsLive = r.Status == RoomStatus.Live && !r.IsDeleted,
             MemberCount = approxMemberCount,
             MaxParticipants = r.MaxParticipants,
             LastActiveAt = r.LastActiveAt ?? r.UpdatedAt ?? r.CreatedAt,
             Language = r.Language,
             SpeakPolicy = r.SpeakPolicy.ToString() switch
             {
-                nameof(VoiceRoomSpeakPolicy.ModeratorOnly) => "moderatorOnly",
-                nameof(VoiceRoomSpeakPolicy.OpenButRateLimited) => "openButRateLimited",
+                nameof(RoomSpeakPolicy.ModeratorOnly) => "moderatorOnly",
+                nameof(RoomSpeakPolicy.OpenButRateLimited) => "openButRateLimited",
                 _ => "raiseHand"
             },
             ThumbnailUrl = r.ThumbnailUrl
         };
 
-        public static VoiceRoomDetailDto ToDetail(this VoiceRoom r, int? approxMemberCount = null)
+        public static RoomDetailDto ToDetail(this Room r, int? approxMemberCount = null)
         {
             var d = ToSummary(r, approxMemberCount);
-            return new VoiceRoomDetailDto
+            return new RoomDetailDto
             {
                 Id = d.Id,
                 Title = d.Title,

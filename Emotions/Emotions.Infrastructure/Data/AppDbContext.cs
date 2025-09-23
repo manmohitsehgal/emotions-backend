@@ -1,4 +1,5 @@
 using Emotions.Domain.Entities;
+using Emotions.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace Emotions.Infrastructure.Data;
@@ -11,20 +12,31 @@ public class AppDbContext : DbContext
     }
 
     // --- DbSets ---
-    public DbSet<VoiceRoom> VoiceRooms { get; set; } = null!;
+    public DbSet<Room> VoiceRooms { get; set; } = null!;
     public DbSet<User> Users { get; set; } = null!;
     public DbSet<JournalEntry> JournalEntries => Set<JournalEntry>();
-    public DbSet<VoiceRoomMember> VoiceRoomMembers => Set<VoiceRoomMember>();
-    public DbSet<VoiceRoomConnection> VoiceRoomConnections => Set<VoiceRoomConnection>();
+    public DbSet<RoomMember> RoomMembers => Set<RoomMember>();
+    public DbSet<RoomConnection> VoiceRoomConnections => Set<RoomConnection>();
     public DbSet<Interest> Interests => Set<Interest>();
     public DbSet<UserInterest> UserInterests => Set<UserInterest>();
+    public DbSet<SupportSession> SupportSessions => Set<SupportSession>();
+    public DbSet<SessionTemplate> SessionTemplates => Set<SessionTemplate>();
+    public DbSet<SessionHost> SessionHosts => Set<SessionHost>();
+    public DbSet<SessionBooking> SessionBookings => Set<SessionBooking>();
+    public DbSet<TherapyConversation> TherapyConversations => Set<TherapyConversation>();
+    public DbSet<TherapyMessage> TherapyMessages => Set<TherapyMessage>();
+    public DbSet<TherapyActionItems> TherapyActionItem => Set<TherapyActionItems>();
+    public DbSet<SafetyEvent> SafetyEvents => Set<SafetyEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
 
+        modelBuilder.Entity<JournalEntry>()
+            .HasIndex(j => new { j.UserId, j.CreatedAt });
+
         // ---------------- VoiceRoom ----------------
-        modelBuilder.Entity<VoiceRoom>(e =>
+        modelBuilder.Entity<Room>(e =>
         {
             e.HasKey(x => x.Id);
 
@@ -51,8 +63,8 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
-        // --------------- VoiceRoomMember (surrogate Id PK) ---------------
-        modelBuilder.Entity<VoiceRoomMember>(e =>
+        // --------------- RoomMember (surrogate Id PK) ---------------
+        modelBuilder.Entity<RoomMember>(e =>
         {
             e.HasKey(x => x.Id);
 
@@ -73,7 +85,7 @@ public class AppDbContext : DbContext
         });
 
         // --------------- VoiceRoomConnection ---------------
-        modelBuilder.Entity<VoiceRoomConnection>(e =>
+        modelBuilder.Entity<RoomConnection>(e =>
         {
             e.HasKey(x => x.Id);
 
@@ -176,5 +188,53 @@ public class AppDbContext : DbContext
             new Interest { Id = 9, Name = "Habits", Slug = "habits" },
             new Interest { Id = 10, Name = "Anger", Slug = "anger" },
         });
+
+        modelBuilder.Entity<SupportSession>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Title).IsRequired().HasMaxLength(140);
+            e.Property(x => x.Capacity).HasDefaultValue(15);
+            e.Property(x => x.Status).HasDefaultValue(SessionStatus.Draft);
+            e.Property(x => x.SpeakPolicy).HasDefaultValue(SpeakPolicy.RoundRobin);
+
+            e.HasOne(x => x.Host).WithMany().HasForeignKey(x => x.HostId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne(x => x.Room).WithMany().HasForeignKey(x => x.VoiceRoomId)
+                .OnDelete(DeleteBehavior.SetNull);
+            e.Property(x => x.Language).IsRequired().HasMaxLength(10); // if added
+        });
+
+        modelBuilder.Entity<SessionTemplate>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Title).IsRequired().HasMaxLength(140);
+            e.Property(x => x.SpeakPolicy).HasDefaultValue(SpeakPolicy.RoundRobin);
+        });
+
+        modelBuilder.Entity<SessionHost>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.DisplayName).HasMaxLength(120);
+            e.Property(x => x.Credentials).HasMaxLength(120);
+
+            e.HasIndex(x => x.UserId).IsUnique(); // <- no HasFilter()
+        });
+
+        modelBuilder.Entity<SessionBooking>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.SessionId, x.UserId }).IsUnique();
+            e.Property(x => x.Status).HasDefaultValue(BookingStatus.Pending);
+
+            e.HasOne(x => x.Session).WithMany()
+                .HasForeignKey(x => x.SessionId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TherapyMessage>()
+            .HasIndex(m => new { m.ConversationId, m.CreatedAt });
+        modelBuilder.Entity<SafetyEvent>()
+            .HasIndex(s => new { s.ConversationId, s.TriggeredAt });
     }
 }

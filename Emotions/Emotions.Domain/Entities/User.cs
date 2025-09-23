@@ -35,7 +35,7 @@ public class User
 
     // 🔧 Voice room relation (optional)
     [ForeignKey("VoiceRoom")] public Guid? VoiceRoomId { get; set; }
-    public VoiceRoom? VoiceRoom { get; set; }
+    public Room? VoiceRoom { get; set; }
 
     public ICollection<UserInterest> UserInterests { get; set; } = new List<UserInterest>();
 

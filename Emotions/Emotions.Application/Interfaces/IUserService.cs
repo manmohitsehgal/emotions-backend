@@ -12,4 +12,6 @@ public interface IUserService
     Task SetInterestsAsync(ClaimsPrincipal principal, IEnumerable<string> slugs, CancellationToken ct = default);
     Task CompleteOnboardingAsync(ClaimsPrincipal principal, bool? analyticsOptIn, CancellationToken ct = default);
     Task<Guid> UpsertFromAuth0Async(string sub, string? email, string? name);
+    Guid GetAuthenticatedUserId(ClaimsPrincipal principal); // throws if missing/invalid
+    bool TryGetAuthenticatedUserId(ClaimsPrincipal principal, out Guid userId);
 }
