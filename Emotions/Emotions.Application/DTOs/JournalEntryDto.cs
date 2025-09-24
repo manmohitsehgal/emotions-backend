@@ -1,11 +1,13 @@
 namespace Emotions.Application.DTOs;
 
-public record JournalEntryDto(
-    Guid Id,
-    Guid UserId,
-    string? Title,
-    string Text, // decrypted
-    bool IsPrivate,
-    DateTime CreatedAt,
-    DateTime? UpdatedAt
-);
+public class JournalEntryDto
+{
+    public Guid Id { get; set; }
+    public string? Title { get; set; }
+    public string Body { get; set; } = string.Empty; // decrypted
+    public string Mode { get; set; } = "text";
+    public DateTime CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+    public string? Mood { get; set; }
+    public string Privacy { get; set; } = "AIEnhanced";
+}

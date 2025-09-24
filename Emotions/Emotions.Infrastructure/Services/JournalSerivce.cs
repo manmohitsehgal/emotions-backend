@@ -4,89 +4,107 @@ using Emotions.Application.Interfaces.Security;
 using Emotions.Domain.Entities;
 using Emotions.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
-// IEncryptionService
 
 namespace Emotions.Infrastructure.Services;
 
-public sealed class JournalService : IJournalService
+public class JournalService : IJournalService
 {
     private readonly AppDbContext _db;
-    private readonly IEncryptionService _crypto;
+    private readonly ITextProtector _protector; // existing app service
 
-    public JournalService(AppDbContext db, IEncryptionService crypto)
+    public JournalService(AppDbContext db, ITextProtector protector)
     {
         _db = db;
-        _crypto = crypto;
+        _protector = protector;
     }
 
-    public async Task<JournalEntryDto> CreateAsync(Guid userId, string? title, string text, bool isPrivate,
+    public async Task<JournalEntryDto> CreateAsync(Guid userId, CreateJournalEntryRequestDto req,
         CancellationToken ct = default)
     {
-        ArgumentNullException.ThrowIfNull(text);
+        var privacy = await _db.JournalPrivacy.FindAsync(new object?[] { userId }, ct) ??
+                      new JournalPrivacy { UserId = userId };
         var entity = new JournalEntry
         {
             Id = Guid.NewGuid(),
             UserId = userId,
-            Title = string.IsNullOrWhiteSpace(title) ? null : title.Trim(),
-            TextEncrypted = await _crypto.EncryptAsync(text, ct),
-            IsPrivate = isPrivate,
+            Title = req.Title,
+            BodyCipher = _protector.Protect(req.Body ?? string.Empty),
+            Mode = "text",
+            Mood = req.Mood,
+            Privacy = req.Privacy ?? privacy.DefaultPrivacy,
             CreatedAt = DateTime.UtcNow
         };
-        _db.Add(entity);
+        _db.JournalEntries.Add(entity);
+
+
+// streaks
+        var streak = await _db.StreakCounters.FindAsync(new object?[] { userId }, ct) ??
+                     new StreakCounter { UserId = userId };
+        if (streak.LastEntryAt.HasValue && streak.LastEntryAt.Value.Date.AddDays(1) == DateTime.UtcNow.Date)
+            streak.CurrentStreak++;
+        else if (streak.LastEntryAt?.Date != DateTime.UtcNow.Date)
+            streak.CurrentStreak = 1;
+        streak.BestStreak = Math.Max(streak.BestStreak, streak.CurrentStreak);
+        streak.LastEntryAt = DateTime.UtcNow;
+        _db.StreakCounters.Update(streak);
+
+
         await _db.SaveChangesAsync(ct);
-
-        return new JournalEntryDto(entity.Id, entity.UserId, entity.Title, text, entity.IsPrivate, entity.CreatedAt,
-            entity.UpdatedAt);
+        return ToDto(entity);
     }
 
-    public async Task<JournalEntryDto?> GetAsync(Guid id, Guid userId, CancellationToken ct = default)
+    public async Task<JournalEntryDto?> GetAsync(Guid userId, Guid id, CancellationToken ct = default)
     {
-        var e = await _db.JournalEntries.FirstOrDefaultAsync(x => x.Id == id && x.UserId == userId, ct);
+        var e = await _db.JournalEntries.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.UserId == userId && x.Id == id && !x.IsArchived, ct);
+        return e is null ? null : ToDto(e);
+    }
+
+    public async Task<IReadOnlyList<JournalEntryDto>> ListAsync(Guid userId, int limit = 20, string? cursor = null,
+        CancellationToken ct = default)
+    {
+        var q = _db.JournalEntries.AsNoTracking()
+            .Where(x => x.UserId == userId && !x.IsArchived)
+            .OrderByDescending(x => x.CreatedAt)
+            .Take(limit);
+        var list = await q.ToListAsync(ct);
+        return list.Select(ToDto).ToList();
+    }
+
+    public async Task<JournalEntryDto?> UpdateAsync(Guid userId, Guid id, UpdateJournalEntryRequestDto req,
+        CancellationToken ct = default)
+    {
+        var e = await _db.JournalEntries.FirstOrDefaultAsync(x => x.UserId == userId && x.Id == id && !x.IsArchived,
+            ct);
         if (e is null) return null;
-        var text = await _crypto.DecryptAsync(e.TextEncrypted, ct);
-        return new JournalEntryDto(e.Id, e.UserId, e.Title, text, e.IsPrivate, e.CreatedAt, e.UpdatedAt);
+        if (req.Title is not null) e.Title = req.Title;
+        if (req.Body is not null) e.BodyCipher = _protector.Protect(req.Body);
+        if (req.Mood is not null) e.Mood = req.Mood;
+        if (req.Privacy is not null) e.Privacy = req.Privacy;
+        e.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+        return ToDto(e);
     }
 
-    public async Task<IReadOnlyList<JournalEntryDto>> ListRecentAsync(Guid userId, int take = 10,
-        CancellationToken ct = default)
+    public async Task<bool> ArchiveAsync(Guid userId, Guid id, CancellationToken ct = default)
     {
-        take = Math.Clamp(take, 1, 50);
-        var items = await _db.JournalEntries
-            .Where(j => j.UserId == userId)
-            .OrderByDescending(j => j.CreatedAt)
-            .Take(take)
-            .ToListAsync(ct);
-
-        var result = new List<JournalEntryDto>(items.Count);
-        foreach (var e in items.OrderBy(j => j.CreatedAt)) // oldest→newest for better flow
-        {
-            var text = await _crypto.DecryptAsync(e.TextEncrypted, ct);
-            result.Add(new JournalEntryDto(e.Id, e.UserId, e.Title, text, e.IsPrivate, e.CreatedAt, e.UpdatedAt));
-        }
-
-        return result;
+        var e = await _db.JournalEntries.FirstOrDefaultAsync(x => x.UserId == userId && x.Id == id && !x.IsArchived,
+            ct);
+        if (e is null) return false;
+        e.IsArchived = true;
+        await _db.SaveChangesAsync(ct);
+        return true;
     }
 
-    public async Task<string?> BuildRecentContextAsync(Guid userId, int maxEntries = 10, int maxChars = 1200,
-        CancellationToken ct = default)
+    private JournalEntryDto ToDto(JournalEntry e) => new()
     {
-        var recent = await ListRecentAsync(userId, maxEntries, ct);
-        if (recent.Count == 0) return null;
-
-        var blocks = recent
-            .Where(r => !string.IsNullOrWhiteSpace(r.Text) /* && !r.IsPrivate */) // optionally exclude private
-            .Select(r =>
-            {
-                var title = string.IsNullOrWhiteSpace(r.Title) ? "" : $"[{r.Title}] ";
-                return $"{title}{r.Text}".Trim();
-            })
-            .Where(s => !string.IsNullOrWhiteSpace(s))
-            .ToList();
-
-        if (blocks.Count == 0) return null;
-
-        var joined = string.Join("\n---\n", blocks);
-        if (joined.Length > maxChars) joined = joined[..maxChars] + "…";
-        return $"Recent journal highlights:\n{joined}";
-    }
+        Id = e.Id,
+        Title = e.Title,
+        Body = _protector.Unprotect(e.BodyCipher),
+        Mode = e.Mode,
+        CreatedAt = e.CreatedAt,
+        UpdatedAt = e.UpdatedAt,
+        Mood = e.Mood,
+        Privacy = e.Privacy
+    };
 }

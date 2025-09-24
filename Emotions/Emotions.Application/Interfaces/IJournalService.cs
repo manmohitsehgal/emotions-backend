@@ -4,12 +4,14 @@ namespace Emotions.Application.Interfaces;
 
 public interface IJournalService
 {
-    Task<JournalEntryDto> CreateAsync(Guid userId, string? title, string text, bool isPrivate,
+    Task<JournalEntryDto> CreateAsync(Guid userId, CreateJournalEntryRequestDto req, CancellationToken ct = default);
+    Task<JournalEntryDto?> GetAsync(Guid userId, Guid id, CancellationToken ct = default);
+
+    Task<IReadOnlyList<JournalEntryDto>> ListAsync(Guid userId, int limit = 20, string? cursor = null,
         CancellationToken ct = default);
 
-    Task<JournalEntryDto?> GetAsync(Guid id, Guid userId, CancellationToken ct = default);
-    Task<IReadOnlyList<JournalEntryDto>> ListRecentAsync(Guid userId, int take = 10, CancellationToken ct = default);
-
-    Task<string?> BuildRecentContextAsync(Guid userId, int maxEntries = 10, int maxChars = 1200,
+    Task<JournalEntryDto?> UpdateAsync(Guid userId, Guid id, UpdateJournalEntryRequestDto req,
         CancellationToken ct = default);
+
+    Task<bool> ArchiveAsync(Guid userId, Guid id, CancellationToken ct = default);
 }

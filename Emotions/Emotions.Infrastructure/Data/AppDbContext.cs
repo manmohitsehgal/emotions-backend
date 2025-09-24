@@ -14,7 +14,6 @@ public class AppDbContext : DbContext
     // --- DbSets ---
     public DbSet<Room> VoiceRooms { get; set; } = null!;
     public DbSet<User> Users { get; set; } = null!;
-    public DbSet<JournalEntry> JournalEntries => Set<JournalEntry>();
     public DbSet<RoomMember> RoomMembers => Set<RoomMember>();
     public DbSet<RoomConnection> VoiceRoomConnections => Set<RoomConnection>();
     public DbSet<Interest> Interests => Set<Interest>();
@@ -27,13 +26,42 @@ public class AppDbContext : DbContext
     public DbSet<TherapyMessage> TherapyMessages => Set<TherapyMessage>();
     public DbSet<TherapyActionItems> TherapyActionItem => Set<TherapyActionItems>();
     public DbSet<SafetyEvent> SafetyEvents => Set<SafetyEvent>();
+    public DbSet<JournalEntry> JournalEntries => Set<JournalEntry>();
+    public DbSet<JournalPrivacy> JournalPrivacy => Set<JournalPrivacy>();
+    public DbSet<StreakCounter> StreakCounters => Set<StreakCounter>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
 
-        modelBuilder.Entity<JournalEntry>()
-            .HasIndex(j => new { j.UserId, j.CreatedAt });
+        modelBuilder.Entity<JournalEntry>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.UserId, x.CreatedAt });
+            e.Property(x => x.BodyCipher).IsRequired();
+            e.Property(x => x.Mode).HasMaxLength(16);
+            e.Property(x => x.Privacy).HasMaxLength(16);
+        });
+
+        modelBuilder.Entity<JournalPrivacy>(e =>
+        {
+            e.HasKey(x => x.UserId);
+            e.Property(x => x.DefaultPrivacy).HasMaxLength(16);
+        });
+
+
+        modelBuilder.Entity<StreakCounter>(e => { e.HasKey(x => x.UserId); });
+
+        modelBuilder.Entity<JournalAttachment>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Type).HasMaxLength(16);
+            e.Property(x => x.BlobKey).IsRequired();
+            e.HasOne<JournalEntry>()
+                .WithMany() // or add ICollection<JournalAttachment> Attachments to JournalEntry
+                .HasForeignKey(x => x.EntryId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
 
         // ---------------- VoiceRoom ----------------
         modelBuilder.Entity<Room>(e =>
