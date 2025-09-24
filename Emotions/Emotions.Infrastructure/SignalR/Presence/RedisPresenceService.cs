@@ -25,8 +25,16 @@ public sealed class RedisPresenceService : IPresenceService, IAsyncDisposable
 
     private RedisKey RoomUsers(Guid roomId) => $"presence:{_prefix}:room:{roomId}:users";
     private RedisKey RoomUserConns(Guid roomId, Guid userId) => $"presence:{_prefix}:room:{roomId}:user:{userId}:conns";
+
     private RedisKey RoomUserAttrs(Guid roomId, Guid userId) => $"presence:{_prefix}:room:{roomId}:user:{userId}:attrs";
-    private RedisKey ConnIndex(string connId) => $"presence:{_prefix}:conn:{connId}";
+
+    // private RedisKey ConnIndex(string connId) => $"presence:{_prefix}:conn:{connId}";
+    private static RedisKey ConnIndex(RedisValue connId)
+    {
+        if (connId.IsNullOrEmpty) throw new ArgumentException("connId is null/empty", nameof(connId));
+        // if you prefix keys:
+        return (RedisKey)$"presence:conn:{(string)connId!}";
+    }
 
     public async Task<bool> AddAsync(Guid roomId, ParticipantDto participant, string connectionId)
     {
@@ -98,20 +106,26 @@ public sealed class RedisPresenceService : IPresenceService, IAsyncDisposable
 
     public async Task RemoveAsync(Guid roomId, Guid userId)
     {
-        // remove all conns for user, their attrs, and user from users set
         var connsKey = RoomUserConns(roomId, userId);
-        var connIds = await _db.SetMembersAsync(connsKey);
+        var connIds = await _db.SetMembersAsync(connsKey).ConfigureAwait(false); // RedisValue[]
+
+        // Delete all connection index keys in one call
         if (connIds.Length > 0)
         {
-            var batch = _db.CreateBatch();
-            foreach (var c in connIds)
-                batch.KeyDeleteAsync(ConnIndex(c!));
-            batch.Execute();
+            RedisKey[] idxKeys = connIds
+                .Select(v => (RedisKey)ConnIndex(v)) // if ConnIndex takes RedisValue use it directly;
+                // otherwise use ConnIndex(v.ToString())
+                .ToArray();
+
+            await _db.KeyDeleteAsync(idxKeys).ConfigureAwait(false);
         }
 
-        await _db.KeyDeleteAsync(connsKey);
-        await _db.KeyDeleteAsync(RoomUserAttrs(roomId, userId));
-        await _db.SetRemoveAsync(RoomUsers(roomId), userId.ToString());
+        // Remove the set and attrs, and take the user out of the room set
+        await Task.WhenAll(
+            _db.KeyDeleteAsync(connsKey),
+            _db.KeyDeleteAsync(RoomUserAttrs(roomId, userId)),
+            _db.SetRemoveAsync(RoomUsers(roomId), userId.ToString())
+        ).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<ParticipantDto>> GetParticipantsAsync(Guid roomId)

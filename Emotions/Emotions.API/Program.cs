@@ -2,10 +2,12 @@ using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using Emotions.Application.Interfaces;
 using Emotions.Application.Interfaces.Auth;
 using Emotions.Application.Interfaces.Security;
 using Emotions.Application.Pricing;
+using Emotions.Application.Storage;
 using Emotions.Infrastructure.Auth;
 using Emotions.Infrastructure.BackgroundJobs;
 using Emotions.Infrastructure.Data;
@@ -13,8 +15,11 @@ using Emotions.Infrastructure.Security;
 using Emotions.Infrastructure.Services;
 using Emotions.Infrastructure.SignalR;
 using Emotions.Infrastructure.SignalR.Presence;
+using Emotions.Infrastructure.Storage;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.Net.Http.Headers;
 using Microsoft.OpenApi.Models;
@@ -52,6 +57,9 @@ builder.Services.AddScoped<IPremiumService, NoopPremiumService>();
 builder.Services.AddSingleton<IWaitlistPriorityCalculator, DefaultPriorityCalculator>();
 builder.Services.AddSingleton<IEncryptionService, AesGcmEncryptionService>();
 builder.Services.AddSingleton<ITextProtector, NoOpTextProtector>();
+
+builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection("Storage"));
+builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<StorageOptions>>().Value);
 
 
 // ---------- Auth0 (OIDC) ----------
@@ -166,6 +174,30 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("AdminOnly", p => p.RequireRole("Admin"));
     options.AddPolicy("UserOnly", p => p.RequireRole("User"));
 });
+
+
+builder.Services.AddSingleton<IBlobStorage>(sp =>
+{
+    var opt = sp.GetRequiredService<StorageOptions>();
+    return opt.Provider.Equals("AzureBlob", StringComparison.OrdinalIgnoreCase)
+        ? new AzureBlobStorage(opt)
+        : new LocalFileStorage(opt);
+});
+
+
+builder.Services.AddRateLimiter(_ => _.AddPolicy("uploads", context =>
+{
+    var user = context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value
+               ?? context.Connection.RemoteIpAddress?.ToString() ?? "anon";
+    return RateLimitPartition.GetFixedWindowLimiter(user, _ => new FixedWindowRateLimiterOptions
+    {
+        AutoReplenishment = true,
+        PermitLimit = 20,
+        Window = TimeSpan.FromMinutes(1)
+    });
+}));
+
+builder.Services.AddHostedService<PendingBlobReaper>();
 
 // SignalR
 builder.Services.AddSignalR();
@@ -282,6 +314,26 @@ app.UseAuthorization();
 
 app.MapControllers();
 app.MapHub<VoiceHub>("/hub/voice");
+
+app.UseRateLimiter();
+
+if (app.Environment.IsDevelopment())
+{
+    var opt = app.Services.GetRequiredService<StorageOptions>();
+    if (opt.Provider == "Local")
+    {
+        var root = Path.GetFullPath(opt.LocalRoot);
+        Directory.CreateDirectory(root);
+        app.UseStaticFiles(new StaticFileOptions
+        {
+            FileProvider = new PhysicalFileProvider(root),
+            RequestPath = "/dev-files",
+            ServeUnknownFileTypes = true
+        });
+    }
+}
+
+app.MapControllers().RequireRateLimiting("uploads");
 
 // Optional: bind explicit dev URL/port
 app.Urls.Add("http://0.0.0.0:5137");

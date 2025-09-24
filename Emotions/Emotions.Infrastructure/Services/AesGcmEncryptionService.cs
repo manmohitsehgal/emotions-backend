@@ -10,6 +10,9 @@ public sealed class AesGcmEncryptionService : IEncryptionService
     // 32-byte key (256-bit) from configuration/KeyVault
     private readonly byte[] _key;
 
+    private const int NonceSizeBytes = 12; // 96-bit nonce (standard for GCM)
+    private const int TagSizeBytes = 16; // 128-bit authentication tag
+
     public AesGcmEncryptionService(IConfiguration cfg)
     {
         var b64 = cfg["Encryption:ContentKeyBase64"]
@@ -21,15 +24,18 @@ public sealed class AesGcmEncryptionService : IEncryptionService
     public Task<string> EncryptAsync(string plaintext, CancellationToken ct = default)
     {
         plaintext ??= string.Empty;
-        using var aes = new AesGcm(_key);
-        var nonce = RandomNumberGenerator.GetBytes(12); // 96-bit nonce
+
+        // allocate buffers
+        var nonce = RandomNumberGenerator.GetBytes(NonceSizeBytes);
         var plain = Encoding.UTF8.GetBytes(plaintext);
         var cipher = new byte[plain.Length];
-        var tag = new byte[16];
+        var tag = new byte[TagSizeBytes];
 
-        aes.Encrypt(nonce, plain, cipher, tag);
+        // ⚠️ use ctor that includes tag size to satisfy SYSLIB0053
+        using var aes = new AesGcm(_key, TagSizeBytes);
+        aes.Encrypt(nonce, plain, cipher, tag); // no AAD for now
 
-        // layout: nonce | tag | ciphertext (all base64)
+        // layout: nonce | tag | ciphertext
         var packed = Convert.ToBase64String(nonce.Concat(tag).Concat(cipher).ToArray());
         return Task.FromResult(packed);
     }
@@ -37,14 +43,20 @@ public sealed class AesGcmEncryptionService : IEncryptionService
     public Task<string> DecryptAsync(string ciphertext, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(ciphertext);
-        var data = Convert.FromBase64String(ciphertext);
-        var nonce = data[..12];
-        var tag = data[12..28];
-        var cipher = data[28..];
 
-        using var aes = new AesGcm(_key);
+        var data = Convert.FromBase64String(ciphertext);
+        if (data.Length < NonceSizeBytes + TagSizeBytes)
+            throw new CryptographicException("Ciphertext too short.");
+
+        var nonce = data.AsSpan(0, NonceSizeBytes);
+        var tag = data.AsSpan(NonceSizeBytes, TagSizeBytes);
+        var cipher = data.AsSpan(NonceSizeBytes + TagSizeBytes);
+
         var plain = new byte[cipher.Length];
-        aes.Decrypt(nonce, cipher, tag, plain);
+
+        // ⚠️ use ctor that includes tag size to satisfy SYSLIB0053
+        using var aes = new AesGcm(_key, TagSizeBytes);
+        aes.Decrypt(nonce, cipher, tag, plain); // no AAD for now
 
         return Task.FromResult(Encoding.UTF8.GetString(plain));
     }

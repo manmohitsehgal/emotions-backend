@@ -29,6 +29,11 @@ public class AppDbContext : DbContext
     public DbSet<JournalEntry> JournalEntries => Set<JournalEntry>();
     public DbSet<JournalPrivacy> JournalPrivacy => Set<JournalPrivacy>();
     public DbSet<StreakCounter> StreakCounters => Set<StreakCounter>();
+    public DbSet<PresignedUploadLogs> PresignedUploadLogs => Set<PresignedUploadLogs>();
+    public DbSet<Plan> Plans => Set<Plan>();
+    public DbSet<PlanStep> PlanSteps => Set<PlanStep>();
+    public DbSet<PlanAdherence> PlanAdherences => Set<PlanAdherence>();
+
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -55,13 +60,64 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<JournalAttachment>(e =>
         {
             e.HasKey(x => x.Id);
-            e.Property(x => x.Type).HasMaxLength(16);
-            e.Property(x => x.BlobKey).IsRequired();
-            e.HasOne<JournalEntry>()
-                .WithMany() // or add ICollection<JournalAttachment> Attachments to JournalEntry
+            e.Property(x => x.Type).HasMaxLength(16).IsRequired();
+            e.Property(x => x.BlobKey).HasMaxLength(512).IsRequired();
+            e.Property(x => x.FileName).HasMaxLength(256);
+            e.Property(x => x.MimeType).HasMaxLength(128);
+            e.HasIndex(x => x.EntryId);
+            e.HasIndex(x => x.BlobKey).IsUnique();
+            e.HasOne(x => x.Entry)
+                .WithMany(j => j.Attachments)
                 .HasForeignKey(x => x.EntryId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
+
+        modelBuilder.Entity<PresignedUploadLogs>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.BlobKey).HasMaxLength(512).IsRequired();
+            e.HasIndex(x => x.BlobKey).IsUnique();
+            e.HasIndex(x => x.EntryId);
+        });
+
+        modelBuilder.Entity<Plan>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.TemplateId).HasMaxLength(128).IsRequired();
+            e.Property(x => x.Title).HasMaxLength(256).IsRequired();
+
+            e.HasIndex(x => x.UserId);
+            e.HasIndex(x => new { x.UserId, x.StartedAt });
+
+            // Relationships
+            e.HasMany<PlanStep>()
+                .WithOne()
+                .HasForeignKey(s => s.PlanId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasMany<PlanAdherence>()
+                .WithOne()
+                .HasForeignKey(a => a.PlanId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PlanStep>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Text).IsRequired();
+            e.HasIndex(x => x.PlanId);
+            // Each plan can have one step per day number:
+            e.HasIndex(x => new { x.PlanId, x.DayNumber }).IsUnique();
+        });
+
+        modelBuilder.Entity<PlanAdherence>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.PlanId);
+            // One adherence row per plan per date:
+            e.HasIndex(x => new { x.PlanId, x.Date }).IsUnique();
+        });
+
 
         // ---------------- VoiceRoom ----------------
         modelBuilder.Entity<Room>(e =>
