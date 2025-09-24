@@ -18,5 +18,7 @@ public class JournalAttachment
     public int? DurationSec { get; set; }
     public int? Width { get; set; }
     public int? Height { get; set; }
+    public string? PreviewBlobKey { get; set; } // poster thumbnail for video; image preview for audio (optional)
+    public string? WaveformJson { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

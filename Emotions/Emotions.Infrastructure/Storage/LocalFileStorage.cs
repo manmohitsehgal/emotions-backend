@@ -57,4 +57,10 @@ public sealed class LocalFileStorage : IBlobStorage
         if (!abs.StartsWith(_root)) throw new InvalidOperationException("Invalid path");
         return abs;
     }
+
+    public string GetReadSasUrl(string blobKey, TimeSpan ttl)
+    {
+        // dev-only static server; no SAS. This is fine for dev.
+        return GetPublicUrl(blobKey);
+    }
 }

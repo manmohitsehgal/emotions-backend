@@ -70,6 +70,8 @@ public class AppDbContext : DbContext
                 .WithMany(j => j.Attachments)
                 .HasForeignKey(x => x.EntryId)
                 .OnDelete(DeleteBehavior.Cascade);
+            e.Property(x => x.PreviewBlobKey).HasMaxLength(512);
+            e.Property(x => x.WaveformJson).HasColumnType("nvarchar(max)");
         });
 
         modelBuilder.Entity<PresignedUploadLogs>(e =>

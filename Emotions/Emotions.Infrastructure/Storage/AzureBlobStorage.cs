@@ -68,4 +68,19 @@ public sealed class AzureBlobStorage : IBlobStorage
     public Task DeleteAsync(string blobKey) => _container.GetBlobClient(blobKey).DeleteIfExistsAsync();
 
     public string GetPublicUrl(string blobKey) => _container.GetBlobClient(blobKey).Uri.ToString();
+
+    public string GetReadSasUrl(string blobKey, TimeSpan ttl)
+    {
+        var blob = _container.GetBlobClient(blobKey);
+        var b = new BlobSasBuilder
+        {
+            BlobContainerName = _container.Name,
+            BlobName = blob.Name,
+            Resource = "b",
+            StartsOn = DateTimeOffset.UtcNow.AddMinutes(-1),
+            ExpiresOn = DateTimeOffset.UtcNow.Add(ttl)
+        };
+        b.SetPermissions(BlobSasPermissions.Read);
+        return blob.GenerateSasUri(b).ToString();
+    }
 }

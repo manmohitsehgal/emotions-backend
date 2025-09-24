@@ -28,6 +28,40 @@ public class JournalAttachmentsController : ControllerBase
         _log = log;
     }
 
+    [HttpGet("{attachmentId:guid}/read-url")]
+    public async Task<ActionResult<ReadUrlResponse>> GetReadUrl(Guid attachmentId, [FromQuery] int minutes = 10)
+    {
+        var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+
+        var att = await _db.Set<JournalAttachment>()
+            .Include(a => a.Entry)
+            .FirstOrDefaultAsync(a => a.Id == attachmentId && a.Entry.UserId == userId);
+
+        if (att is null) return NotFound();
+
+        var ttl = TimeSpan.FromMinutes(Math.Clamp(minutes, 1, 60));
+        var url = _storage.GetReadSasUrl(att.BlobKey, ttl);
+        return Ok(new ReadUrlResponse(url, DateTimeOffset.UtcNow.Add(ttl)));
+    }
+
+    [HttpGet("{attachmentId:guid}/preview-url")]
+    public async Task<ActionResult<ReadUrlResponse>> GetPreviewUrl(Guid attachmentId, [FromQuery] int minutes = 10)
+    {
+        var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+
+        var att = await _db.Set<JournalAttachment>()
+            .Include(a => a.Entry)
+            .FirstOrDefaultAsync(a => a.Id == attachmentId && a.Entry.UserId == userId);
+
+        if (att?.PreviewBlobKey is null) return NotFound();
+
+        var ttl = TimeSpan.FromMinutes(Math.Clamp(minutes, 1, 60));
+        var url = _storage.GetReadSasUrl(att.PreviewBlobKey, ttl);
+        return Ok(new ReadUrlResponse(url, DateTimeOffset.UtcNow.Add(ttl)));
+    }
+
     [HttpPost("presign")]
     public async Task<ActionResult<PresignResponse>> Presign([FromBody] PresignRequest req)
     {
@@ -62,6 +96,46 @@ public class JournalAttachmentsController : ControllerBase
         _log.LogInformation("Presigned upload for {EntryId} by {User} → {BlobKey} ({Mime}, {Size}B)", entry.Id, userId,
             pre.BlobKey, req.MimeType, req.SizeBytes);
         return Ok(new PresignResponse(pre.BlobKey, pre.UploadUrl, pre.Method, (Dictionary<string, string>)pre.Headers));
+    }
+
+    public record SetPreviewRequest(string BlobKey);
+
+    [HttpPost("{attachmentId:guid}/set-preview")]
+    public async Task<IActionResult> SetPreview(Guid attachmentId, [FromBody] SetPreviewRequest body)
+    {
+        var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+
+        var att = await _db.Set<JournalAttachment>()
+            .Include(a => a.Entry)
+            .FirstOrDefaultAsync(a => a.Id == attachmentId && a.Entry.UserId == userId);
+        if (att is null) return NotFound();
+
+        // (Optional) verify blob exists
+        if (!await _storage.BlobExistsAsync(body.BlobKey)) return BadRequest("Preview blob not found");
+
+        att.PreviewBlobKey = body.BlobKey;
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
+    public record SetWaveformRequest(string WaveformJson, int? DurationSec);
+
+    [HttpPost("{attachmentId:guid}/set-waveform")]
+    public async Task<IActionResult> SetWaveform(Guid attachmentId, [FromBody] SetWaveformRequest body)
+    {
+        var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+
+        var att = await _db.Set<JournalAttachment>()
+            .Include(a => a.Entry)
+            .FirstOrDefaultAsync(a => a.Id == attachmentId && a.Entry.UserId == userId && a.Type == "audio");
+        if (att is null) return NotFound();
+
+        att.WaveformJson = body.WaveformJson;
+        if (body.DurationSec.HasValue) att.DurationSec = body.DurationSec;
+        await _db.SaveChangesAsync();
+        return NoContent();
     }
 
     [HttpPost("commit")]

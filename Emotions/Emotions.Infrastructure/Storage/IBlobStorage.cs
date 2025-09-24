@@ -19,4 +19,5 @@ public interface IBlobStorage
     Task PromoteAsync(string sourceKey, string destKey);
     Task DeleteAsync(string blobKey);
     string GetPublicUrl(string blobKey);
+    string GetReadSasUrl(string blobKey, TimeSpan ttl); // For Azure; Local returns /dev-files path
 }
