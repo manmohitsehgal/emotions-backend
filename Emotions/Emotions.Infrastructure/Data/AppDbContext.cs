@@ -34,6 +34,8 @@ public class AppDbContext : DbContext
     public DbSet<PlanStep> PlanSteps => Set<PlanStep>();
     public DbSet<PlanAdherence> PlanAdherences => Set<PlanAdherence>();
     public DbSet<JournalAttachmentTranscripts> JournalAttachmentTranscripts => Set<JournalAttachmentTranscripts>();
+    public DbSet<TranscriptSegment> TranscriptSegments => Set<TranscriptSegment>();
+    public DbSet<TranscriptWord> TranscriptWords => Set<TranscriptWord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -128,6 +130,20 @@ public class AppDbContext : DbContext
             e.Property(x => x.Language).HasMaxLength(8);
             e.Property(x => x.Attempts).HasDefaultValue(0);
             e.Property(x => x.LastError).HasMaxLength(512);
+        });
+
+        modelBuilder.Entity<TranscriptSegment>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.AttachmentId, x.Index }).IsUnique();
+            e.Property(x => x.Text).IsRequired();
+        });
+
+        modelBuilder.Entity<TranscriptWord>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.SegmentId, x.Index }).IsUnique();
+            e.Property(x => x.Text).IsRequired();
         });
 
 
