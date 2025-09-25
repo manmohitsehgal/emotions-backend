@@ -10,4 +10,7 @@ public class JournalAttachmentTranscripts
     public float? Confidence { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? CompletedAt { get; set; }
+    public int Attempts { get; set; } = 0;
+    public string? LastError { get; set; }
+    public DateTime? LastTriedAt { get; set; }
 }

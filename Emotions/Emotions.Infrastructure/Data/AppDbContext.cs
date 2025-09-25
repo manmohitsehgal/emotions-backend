@@ -126,6 +126,8 @@ public class AppDbContext : DbContext
             e.HasIndex(x => x.AttachmentId).IsUnique(false);
             e.Property(x => x.Status).HasMaxLength(32).IsRequired();
             e.Property(x => x.Language).HasMaxLength(8);
+            e.Property(x => x.Attempts).HasDefaultValue(0);
+            e.Property(x => x.LastError).HasMaxLength(512);
         });
 
 
