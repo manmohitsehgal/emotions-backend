@@ -33,7 +33,7 @@ public class AppDbContext : DbContext
     public DbSet<Plan> Plans => Set<Plan>();
     public DbSet<PlanStep> PlanSteps => Set<PlanStep>();
     public DbSet<PlanAdherence> PlanAdherences => Set<PlanAdherence>();
-
+    public DbSet<JournalAttachmentTranscripts> JournalAttachmentTranscripts => Set<JournalAttachmentTranscripts>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -118,6 +118,14 @@ public class AppDbContext : DbContext
             e.HasIndex(x => x.PlanId);
             // One adherence row per plan per date:
             e.HasIndex(x => new { x.PlanId, x.Date }).IsUnique();
+        });
+
+        modelBuilder.Entity<JournalAttachmentTranscripts>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.AttachmentId).IsUnique(false);
+            e.Property(x => x.Status).HasMaxLength(32).IsRequired();
+            e.Property(x => x.Language).HasMaxLength(8);
         });
 
 
