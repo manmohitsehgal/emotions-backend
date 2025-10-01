@@ -1,5 +1,3 @@
-using Emotions.Application.Storage;
-
 namespace Emotions.Infrastructure.Storage;
 
 public sealed class LocalFileStorage : IBlobStorage

@@ -2,7 +2,7 @@ using Emotions.Application.Common;
 using Emotions.Application.DTOs;
 using Emotions.Application.DTOs.Mappers;
 using Emotions.Application.DTOs.Rooms;
-using Emotions.Application.DTOs.VoiceRooms.Queries;
+using Emotions.Application.DTOs.Rooms.Queries;
 using Emotions.Application.Interfaces;
 using Emotions.Domain.Entities;
 using Emotions.Infrastructure.Data;
@@ -26,7 +26,7 @@ namespace Emotions.Infrastructure.Services
         public async Task<PagedResult<RoomSummaryDto>> ListAsync(RoomListQuery query,
             CancellationToken ct = default)
         {
-            var q = _db.VoiceRooms.AsNoTracking().Where(r => !r.IsDeleted);
+            var q = _db.Rooms.AsNoTracking().Where(r => !r.IsDeleted);
 
             if (!string.IsNullOrWhiteSpace(query.Theme) &&
                 Enum.TryParse<RoomTheme>(query.Theme, true, out var theme))
@@ -66,7 +66,7 @@ namespace Emotions.Infrastructure.Services
 
         public async Task<RoomDetailDto?> GetAsync(Guid id, CancellationToken ct = default)
         {
-            var r = await _db.VoiceRooms.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, ct);
+            var r = await _db.Rooms.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, ct);
             if (r is null) return null;
             var count = _presence.GetApproxMemberCount(id);
             return r.ToDetail(count);

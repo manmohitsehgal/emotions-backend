@@ -1,4 +1,4 @@
-namespace Emotions.Application.Storage;
+namespace Emotions.Infrastructure.Storage;
 
 public sealed record PresignedUpload(
     string BlobKey,

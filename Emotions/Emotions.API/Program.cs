@@ -6,11 +6,12 @@ using System.Threading.RateLimiting;
 using Emotions.Application.Interfaces;
 using Emotions.Application.Interfaces.Auth;
 using Emotions.Application.Interfaces.Security;
+using Emotions.Application.Interfaces.Transcription;
 using Emotions.Application.Pricing;
-using Emotions.Application.Storage;
 using Emotions.Infrastructure.Auth;
 using Emotions.Infrastructure.BackgroundJobs;
 using Emotions.Infrastructure.Data;
+using Emotions.Infrastructure.Queue;
 using Emotions.Infrastructure.Security;
 using Emotions.Infrastructure.Services;
 using Emotions.Infrastructure.SignalR;
@@ -24,6 +25,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.Net.Http.Headers;
 using Microsoft.OpenApi.Models;
 using OpenAI;
+using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -57,6 +59,8 @@ builder.Services.AddScoped<IPremiumService, NoopPremiumService>();
 builder.Services.AddSingleton<IWaitlistPriorityCalculator, DefaultPriorityCalculator>();
 builder.Services.AddSingleton<IEncryptionService, AesGcmEncryptionService>();
 builder.Services.AddSingleton<ITextProtector, NoOpTextProtector>();
+builder.Services.AddScoped<ISummarizationService, OpenAISummarizationService>();
+builder.Services.AddScoped<ITranscriptionService, OpenAIWhisperTranscriptionService>();
 
 builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection("Storage"));
 builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<StorageOptions>>().Value);
@@ -198,6 +202,9 @@ builder.Services.AddRateLimiter(_ => _.AddPolicy("uploads", context =>
 }));
 
 builder.Services.AddHostedService<PendingBlobReaper>();
+builder.Services.AddHostedService<TranscriptionWorker>();
+builder.Services.AddHostedService<RetryPump>();
+builder.Services.AddHostedService<SessionLifecycleWorker>();
 
 // SignalR
 builder.Services.AddSignalR();
@@ -244,14 +251,52 @@ builder.Services.AddSwaggerGen(c =>
 
 builder.Services.AddHttpContextAccessor();
 
-// HttpClient for Python AI service (proxy)
-builder.Services.AddHttpClient("AiService", (sp, client) =>
+builder.Services.AddHttpClient();
+
+// builder.Services.AddSingleton<IAttachmentReader>(sp =>
+// {
+//     var storage = sp.GetRequiredService<StorageOptions>(); // you already bind this
+//     if (string.Equals(storage.Provider, "AzureBlob", StringComparison.OrdinalIgnoreCase) ||
+//         string.Equals(storage.Provider, "Azurite", StringComparison.OrdinalIgnoreCase))
+//     {
+//         return new AzureBlobAttachmentReader(
+//             connectionString: storage.AzureConnectionString ?? throw new Exception("Missing Azure Storage Connection"),           // map to your StorageOptions
+//             defaultContainer: storage.AzureContainer ?? "journal");
+//     }
+//     else
+//     {
+//         return new LocalFileAttachmentReader(root: storage.LocalRoot ?? "./data/blobs");
+//     }
+// });
+
+builder.Services.AddSingleton<IAttachmentReader>(sp =>
 {
-    var cfg = sp.GetRequiredService<IConfiguration>();
-    var baseUrl = cfg["AiService:BaseUrl"] ?? "http://localhost:8000";
-    client.BaseAddress = new Uri(baseUrl);
-    client.Timeout = TimeSpan.FromSeconds(20);
+    var storage = sp.GetRequiredService<StorageOptions>();
+    var provider = storage.Provider?.Trim();
+
+    if (string.Equals(provider, "AzureBlob", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(provider, "Azurite", StringComparison.OrdinalIgnoreCase))
+    {
+        var conn = storage.AzureConnectionString
+                   ?? throw new InvalidOperationException("Storage.AzureConnectionString is missing.");
+        var container = string.IsNullOrWhiteSpace(storage.AzureContainer) ? "journal" : storage.AzureContainer;
+        return new AzureBlobAttachmentReader(connectionString: conn, defaultContainer: container);
+    }
+
+    // Default to local filesystem
+    var root = string.IsNullOrWhiteSpace(storage.LocalRoot) ? "./data/blobs" : storage.LocalRoot!;
+    Directory.CreateDirectory(root); // ensure exists for dev
+    return new LocalFileAttachmentReader(root);
 });
+
+// ---------- Redis queue + retry (Sprint 5) ----------
+builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+    ConnectionMultiplexer.Connect(
+        builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379"));
+
+builder.Services.AddSingleton<RedisTranscriptionQueue>();
+builder.Services.AddSingleton<ITranscriptionJobQueue>(sp => sp.GetRequiredService<RedisTranscriptionQueue>());
+builder.Services.AddSingleton<IRetryScheduler>(sp => sp.GetRequiredService<RedisTranscriptionQueue>());
 
 builder.Services.AddSingleton(sp =>
 {

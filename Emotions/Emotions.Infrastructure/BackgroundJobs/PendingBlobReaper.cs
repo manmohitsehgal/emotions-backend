@@ -1,6 +1,5 @@
-using Emotions.Application.Storage;
 using Emotions.Infrastructure.Data;
-using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -8,18 +7,14 @@ namespace Emotions.Infrastructure.BackgroundJobs;
 
 public sealed class PendingBlobReaper : BackgroundService
 {
-    private readonly AppDbContext _db;
-    private readonly IBlobStorage _storage;
-    private readonly ILogger<PendingBlobReaper> _log;
+    private readonly IServiceProvider _services;
+    private readonly ILogger<PendingBlobReaper> _logger;
 
-
-    public PendingBlobReaper(AppDbContext db, IBlobStorage storage, ILogger<PendingBlobReaper> log)
+    public PendingBlobReaper(IServiceProvider services, ILogger<PendingBlobReaper> logger)
     {
-        _db = db;
-        _storage = storage;
-        _log = log;
+        _services = services;
+        _logger = logger;
     }
-
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -27,25 +22,21 @@ public sealed class PendingBlobReaper : BackgroundService
         {
             try
             {
-                var cutoff = DateTime.UtcNow.AddHours(-24);
-                var stale = await _db.PresignedUploadLogs
-                    .Where(x => x.CreatedAt < cutoff)
-                    .ToListAsync(stoppingToken);
-                foreach (var s in stale)
-                {
-                    await _storage.DeleteAsync(s.BlobKey);
-                    _db.Remove(s);
-                }
+                using var scope = _services.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-                if (stale.Count > 0) await _db.SaveChangesAsync(stoppingToken);
+                // ... do your work with `db` here ...
+
+                await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
             }
             catch (Exception ex)
             {
-                _log.LogError(ex, "PendingBlobReaper failed");
+                _logger.LogError(ex, "PendingBlobReaper error");
+                await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
             }
-
-
-            await Task.Delay(TimeSpan.FromHours(6), stoppingToken);
         }
     }
 }

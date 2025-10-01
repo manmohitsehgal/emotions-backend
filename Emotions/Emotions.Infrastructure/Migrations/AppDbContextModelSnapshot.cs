@@ -110,21 +110,142 @@ namespace Emotions.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Emotions.Domain.Entities.JournalAttachment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BlobKey")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("DurationSec")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("EntryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("FileName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<int?>("Height")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("MimeType")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("PreviewBlobKey")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("WaveformJson")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("Width")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BlobKey")
+                        .IsUnique();
+
+                    b.HasIndex("EntryId");
+
+                    b.ToTable("JournalAttachment");
+                });
+
+            modelBuilder.Entity("Emotions.Domain.Entities.JournalAttachmentTranscripts", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AttachmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<float?>("Confidence")
+                        .HasColumnType("real");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Language")
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<DateTime?>("LastTriedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Text")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AttachmentId");
+
+                    b.ToTable("JournalAttachmentTranscripts");
+                });
+
             modelBuilder.Entity("Emotions.Domain.Entities.JournalEntry", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("BodyCipher")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<bool>("IsPrivate")
+                    b.Property<bool>("IsArchived")
                         .HasColumnType("boolean");
 
-                    b.Property<string>("TextEncrypted")
+                    b.Property<string>("Mode")
                         .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("Mood")
                         .HasColumnType("text");
+
+                    b.Property<string>("Privacy")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
 
                     b.Property<string>("Title")
                         .HasColumnType("text");
@@ -140,6 +261,137 @@ namespace Emotions.Infrastructure.Migrations
                     b.HasIndex("UserId", "CreatedAt");
 
                     b.ToTable("JournalEntries");
+                });
+
+            modelBuilder.Entity("Emotions.Domain.Entities.JournalPrivacy", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DefaultPrivacy")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<bool>("DefaultTranscription")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("LocalOnlyPinHash")
+                        .HasColumnType("text");
+
+                    b.HasKey("UserId");
+
+                    b.ToTable("JournalPrivacy");
+                });
+
+            modelBuilder.Entity("Emotions.Domain.Entities.Plan", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TemplateId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("UserId", "StartedAt");
+
+                    b.ToTable("Plans");
+                });
+
+            modelBuilder.Entity("Emotions.Domain.Entities.PlanAdherence", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("Date")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("Done")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("PlanId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PlanId");
+
+                    b.HasIndex("PlanId", "Date")
+                        .IsUnique();
+
+                    b.ToTable("PlanAdherences");
+                });
+
+            modelBuilder.Entity("Emotions.Domain.Entities.PlanStep", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("DayNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("PlanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PlanId");
+
+                    b.HasIndex("PlanId", "DayNumber")
+                        .IsUnique();
+
+                    b.ToTable("PlanSteps");
+                });
+
+            modelBuilder.Entity("Emotions.Domain.Entities.PresignedUploadLogs", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BlobKey")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("EntryId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BlobKey")
+                        .IsUnique();
+
+                    b.HasIndex("EntryId");
+
+                    b.ToTable("PresignedUploadLogs");
                 });
 
             modelBuilder.Entity("Emotions.Domain.Entities.Room", b =>
@@ -212,7 +464,7 @@ namespace Emotions.Infrastructure.Migrations
 
                     b.HasIndex("Status", "LastActiveAt");
 
-                    b.ToTable("VoiceRooms");
+                    b.ToTable("Rooms");
                 });
 
             modelBuilder.Entity("Emotions.Domain.Entities.RoomConnection", b =>
@@ -441,6 +693,26 @@ namespace Emotions.Infrastructure.Migrations
                     b.ToTable("SessionTemplates");
                 });
 
+            modelBuilder.Entity("Emotions.Domain.Entities.StreakCounter", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("BestStreak")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CurrentStreak")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("LastEntryAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("UserId");
+
+                    b.ToTable("StreakCounters");
+                });
+
             modelBuilder.Entity("Emotions.Domain.Entities.SupportSession", b =>
                 {
                     b.Property<Guid>("Id")
@@ -619,6 +891,103 @@ namespace Emotions.Infrastructure.Migrations
                     b.ToTable("TherapyMessages");
                 });
 
+            modelBuilder.Entity("Emotions.Domain.Entities.TranscriptSegment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AttachmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("EndMs")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Index")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("StartMs")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AttachmentId", "Index")
+                        .IsUnique();
+
+                    b.ToTable("TranscriptSegments");
+                });
+
+            modelBuilder.Entity("Emotions.Domain.Entities.TranscriptSummary", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AttachmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.PrimitiveCollection<string[]>("Tags")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AttachmentId");
+
+                    b.ToTable("TranscriptSummaries");
+                });
+
+            modelBuilder.Entity("Emotions.Domain.Entities.TranscriptWord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("EndMs")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Index")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("SegmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("StartMs")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("TranscriptSegmentId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TranscriptSegmentId");
+
+                    b.HasIndex("SegmentId", "Index")
+                        .IsUnique();
+
+                    b.ToTable("TranscriptWords");
+                });
+
             modelBuilder.Entity("Emotions.Domain.Entities.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -697,6 +1066,35 @@ namespace Emotions.Infrastructure.Migrations
                     b.ToTable("UserInterests");
                 });
 
+            modelBuilder.Entity("Emotions.Domain.Entities.JournalAttachment", b =>
+                {
+                    b.HasOne("Emotions.Domain.Entities.JournalEntry", "Entry")
+                        .WithMany("Attachments")
+                        .HasForeignKey("EntryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Entry");
+                });
+
+            modelBuilder.Entity("Emotions.Domain.Entities.PlanAdherence", b =>
+                {
+                    b.HasOne("Emotions.Domain.Entities.Plan", null)
+                        .WithMany()
+                        .HasForeignKey("PlanId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Emotions.Domain.Entities.PlanStep", b =>
+                {
+                    b.HasOne("Emotions.Domain.Entities.Plan", null)
+                        .WithMany()
+                        .HasForeignKey("PlanId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Emotions.Domain.Entities.RoomConnection", b =>
                 {
                     b.HasOne("Emotions.Domain.Entities.Room", "Room")
@@ -765,6 +1163,13 @@ namespace Emotions.Infrastructure.Migrations
                     b.Navigation("Conversation");
                 });
 
+            modelBuilder.Entity("Emotions.Domain.Entities.TranscriptWord", b =>
+                {
+                    b.HasOne("Emotions.Domain.Entities.TranscriptSegment", null)
+                        .WithMany("Words")
+                        .HasForeignKey("TranscriptSegmentId");
+                });
+
             modelBuilder.Entity("Emotions.Domain.Entities.User", b =>
                 {
                     b.HasOne("Emotions.Domain.Entities.Room", "VoiceRoom")
@@ -799,11 +1204,21 @@ namespace Emotions.Infrastructure.Migrations
                     b.Navigation("UserInterests");
                 });
 
+            modelBuilder.Entity("Emotions.Domain.Entities.JournalEntry", b =>
+                {
+                    b.Navigation("Attachments");
+                });
+
             modelBuilder.Entity("Emotions.Domain.Entities.Room", b =>
                 {
                     b.Navigation("Connections");
 
                     b.Navigation("Members");
+                });
+
+            modelBuilder.Entity("Emotions.Domain.Entities.TranscriptSegment", b =>
+                {
+                    b.Navigation("Words");
                 });
 
             modelBuilder.Entity("Emotions.Domain.Entities.User", b =>

@@ -1,4 +1,4 @@
-namespace Emotions.Application.DTOs.VoiceRooms.Queries;
+namespace Emotions.Application.DTOs.Rooms.Queries;
 
 public class RoomListQuery
 {

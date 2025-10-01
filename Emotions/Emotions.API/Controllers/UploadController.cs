@@ -1,4 +1,4 @@
-using Emotions.Application.Storage;
+using Emotions.Infrastructure.Storage;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;

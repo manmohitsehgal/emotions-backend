@@ -1,9 +1,9 @@
 using System.Security.Claims;
 using Emotions.API.Policies;
 using Emotions.Application.DTOs;
-using Emotions.Application.Storage;
 using Emotions.Domain.Entities;
 using Emotions.Infrastructure.Data;
+using Emotions.Infrastructure.Storage;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;

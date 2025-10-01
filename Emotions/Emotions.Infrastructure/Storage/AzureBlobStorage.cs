@@ -1,6 +1,5 @@
 using Azure.Storage.Blobs;
 using Azure.Storage.Sas;
-using Emotions.Application.Storage;
 
 namespace Emotions.Infrastructure.Storage;
 

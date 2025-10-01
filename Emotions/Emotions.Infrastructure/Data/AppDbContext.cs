@@ -12,7 +12,7 @@ public class AppDbContext : DbContext
     }
 
     // --- DbSets ---
-    public DbSet<Room> VoiceRooms { get; set; } = null!;
+    public DbSet<Room> Rooms { get; set; } = null!;
     public DbSet<User> Users { get; set; } = null!;
     public DbSet<RoomMember> RoomMembers => Set<RoomMember>();
     public DbSet<RoomConnection> VoiceRoomConnections => Set<RoomConnection>();
@@ -36,6 +36,8 @@ public class AppDbContext : DbContext
     public DbSet<JournalAttachmentTranscripts> JournalAttachmentTranscripts => Set<JournalAttachmentTranscripts>();
     public DbSet<TranscriptSegment> TranscriptSegments => Set<TranscriptSegment>();
     public DbSet<TranscriptWord> TranscriptWords => Set<TranscriptWord>();
+    public DbSet<TranscriptSummary> TranscriptSummaries => Set<TranscriptSummary>();
+
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -73,7 +75,7 @@ public class AppDbContext : DbContext
                 .HasForeignKey(x => x.EntryId)
                 .OnDelete(DeleteBehavior.Cascade);
             e.Property(x => x.PreviewBlobKey).HasMaxLength(512);
-            e.Property(x => x.WaveformJson).HasColumnType("nvarchar(max)");
+            e.Property(x => x.WaveformJson).HasColumnType("text");
         });
 
         modelBuilder.Entity<PresignedUploadLogs>(e =>
@@ -144,6 +146,14 @@ public class AppDbContext : DbContext
             e.HasKey(x => x.Id);
             e.HasIndex(x => new { x.SegmentId, x.Index }).IsUnique();
             e.Property(x => x.Text).IsRequired();
+        });
+
+        modelBuilder.Entity<TranscriptSummary>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.AttachmentId);
+            e.Property(x => x.Summary).IsRequired();
+            e.Property(x => x.Model).HasMaxLength(64);
         });
 
 
