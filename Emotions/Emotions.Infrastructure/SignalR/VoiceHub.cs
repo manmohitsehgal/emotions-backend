@@ -7,9 +7,10 @@ using Microsoft.Extensions.Logging;
 
 namespace Emotions.Infrastructure.SignalR
 {
-    public partial class VoiceHub : Hub<IVoiceClient>
+    [Authorize]
+    public class VoiceHub : Hub<IVoiceClient>
     {
-        private readonly IPresenceService _presence; // or IVoicePresenceService if you prefer the interface
+        private readonly IPresenceService _presence;
         private readonly ILogger<VoiceHub> _logger;
 
         public VoiceHub(IPresenceService presence, ILogger<VoiceHub> logger)
@@ -44,28 +45,34 @@ namespace Emotions.Infrastructure.SignalR
         }
 
         // Client: invoke("JoinRoom", roomIdGuid)
-        public async Task JoinRoom(Guid roomId)
+        public async Task<(IReadOnlyList<ParticipantDto> roster, int count)> JoinRoom(Guid roomId)
         {
             var (userIdGuid, userIdStr) = GetUserIdGuidOrThrow();
             var connId = Context.ConnectionId;
             var group = roomId.ToString();
 
-            // Add to SignalR group first (so broadcasts reach caller too if needed)
             await Groups.AddToGroupAsync(connId, group);
 
-            // Prepare participant attrs (adjust display name source as needed)
             var participant = new ParticipantDto
             {
-                UserId = userIdStr, // must be a GUID string (see helper)
+                UserId = userIdStr, // GUID string
                 DisplayName = GetDisplayName() ?? "User",
-                IsMuted = true, // default self-muted on join
+                IsMuted = true,
                 IsVideoOn = false
             };
 
-            // Update Redis presence & connection index
-            var isNewInRoom = await _presence.AddAsync(roomId, participant, connId);
+            bool isNewInRoom;
+            try
+            {
+                isNewInRoom = await _presence.AddAsync(roomId, participant, connId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "JoinRoom presence failed for {Room} {Conn}", roomId, connId);
+                await Groups.RemoveFromGroupAsync(connId, group);
+                throw;
+            }
 
-            // Broadcast membership events
             if (isNewInRoom)
             {
                 await Clients.Group(group).MemberJoined(new
@@ -76,15 +83,15 @@ namespace Emotions.Infrastructure.SignalR
                 });
             }
 
-            // Count & broadcast
             var count = _presence.GetApproxMemberCount(roomId) ?? 0;
-            await Clients.Group(group).MemberCountUpdated(new { roomId, count });
+            await Clients.Group(group).MemberCountUpdated(new MemberCountPayload(roomId, count));
 
-            // Optional: send roster to the caller for immediate UI
             var roster = await _presence.GetParticipantsAsync(roomId);
             await Clients.Caller.RoomRoster(roster);
 
             _logger.LogInformation("JoinRoom: user {UserId} conn {Conn} room {Room}", userIdStr, connId, roomId);
+
+            return (roster, count);
         }
 
         // Client: invoke("LeaveRoom", roomIdGuid)
@@ -94,18 +101,19 @@ namespace Emotions.Infrastructure.SignalR
             var connId = Context.ConnectionId;
             var group = roomId.ToString();
 
-            // Remove only THIS connection from presence
-            // We need data for broadcasts BEFORE we erase the index:
-            // but you already pass roomId, so we can use it directly.
-            await _presence.RemoveByConnectionAsync(connId);
+            try
+            {
+                await _presence.RemoveByConnectionAsync(connId);
+            }
+            finally
+            {
+                await Groups.RemoveFromGroupAsync(connId, group);
+            }
 
-            await Groups.RemoveFromGroupAsync(connId, group);
-
-            // Broadcast
             await Clients.Group(group).MemberLeft(new { roomId, userId = userIdStr });
 
             var count = _presence.GetApproxMemberCount(roomId) ?? 0;
-            await Clients.Group(group).MemberCountUpdated(new { roomId, count });
+            await Clients.Group(group).MemberCountUpdated(new MemberCountPayload(roomId, count));
 
             _logger.LogInformation("LeaveRoom: user {UserId} conn {Conn} room {Room}", userIdStr, connId, roomId);
         }
@@ -116,10 +124,12 @@ namespace Emotions.Infrastructure.SignalR
             var (userIdGuid, userIdStr) = GetUserIdGuidOrThrow();
             var connId = Context.ConnectionId;
 
-            // Find current room for this connection
             var (roomIdMaybe, _) = await _presence.FindByConnectionAsync(connId);
             if (roomIdMaybe is null)
+            {
+                _logger.LogWarning("ToggleMute with no room: {Conn}", connId);
                 throw new HubException("Not currently in a room.");
+            }
 
             var roomId = roomIdMaybe.Value;
 
@@ -137,22 +147,26 @@ namespace Emotions.Infrastructure.SignalR
 
         public override async Task OnDisconnectedAsync(Exception? exception)
         {
-            // We need room + user BEFORE we clear the connection index:
             var connId = Context.ConnectionId;
             var (roomIdMaybe, participant) = await _presence.FindByConnectionAsync(connId);
 
-            if (roomIdMaybe is not null && participant is not null)
+            if (roomIdMaybe is Guid roomId && participant is not null)
             {
-                var roomId = roomIdMaybe.Value;
                 var group = roomId.ToString();
 
-                await _presence.RemoveByConnectionAsync(connId);
-                await Groups.RemoveFromGroupAsync(connId, group);
+                try
+                {
+                    await _presence.RemoveByConnectionAsync(connId);
+                }
+                finally
+                {
+                    await Groups.RemoveFromGroupAsync(connId, group);
+                }
 
                 await Clients.Group(group).MemberLeft(new { roomId, userId = participant.UserId });
 
                 var count = _presence.GetApproxMemberCount(roomId) ?? 0;
-                await Clients.Group(group).MemberCountUpdated(new { roomId, count });
+                await Clients.Group(group).MemberCountUpdated(new MemberCountPayload(roomId, count));
 
                 _logger.LogInformation("Disconnect: user {UserId} conn {Conn} room {Room}", participant.UserId, connId,
                     roomId);
@@ -183,17 +197,14 @@ namespace Emotions.Infrastructure.SignalR
 
         // -------- helpers
 
-        // Returns (Guid, string) where string is the Guid.ToString()
         private (Guid guid, string str) GetUserIdGuidOrThrow()
         {
-            // Prefer NameIdentifier; fall back to "sub"
             var id = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier)
                      ?? Context.User?.FindFirst("sub")?.Value;
 
             if (string.IsNullOrWhiteSpace(id))
                 throw new HubException("Unauthorized: missing user id.");
 
-            // Your Redis layer requires GUID user ids (Guid.Parse is used internally).
             if (!Guid.TryParse(id, out var parsed))
                 throw new HubException("Invalid user id. Expected GUID in user identity claim.");
 

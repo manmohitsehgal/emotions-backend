@@ -38,6 +38,12 @@ public class AppDbContext : DbContext
     public DbSet<TranscriptWord> TranscriptWords => Set<TranscriptWord>();
     public DbSet<TranscriptSummary> TranscriptSummaries => Set<TranscriptSummary>();
 
+    public DbSet<MoodEntry> Moods => Set<MoodEntry>();
+    public DbSet<PlanStepStatus> PlanStepStatuses => Set<PlanStepStatus>();
+    public DbSet<Insight> Insights => Set<Insight>();
+    public DbSet<UserSubscription> UserSubscriptions => Set<UserSubscription>();
+    public DbSet<AppSetting> AppSettings => Set<AppSetting>();
+
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -358,5 +364,24 @@ public class AppDbContext : DbContext
             .HasIndex(m => new { m.ConversationId, m.CreatedAt });
         modelBuilder.Entity<SafetyEvent>()
             .HasIndex(s => new { s.ConversationId, s.TriggeredAt });
+
+        modelBuilder.Entity<MoodEntry>()
+            .HasIndex(x => new { x.UserId, x.CreatedAt });
+
+        modelBuilder.Entity<UserSubscription>()
+            .HasIndex(x => x.UserId)
+            .IsUnique();
+
+        modelBuilder.Entity<AppSetting>()
+            .HasIndex(x => x.Key)
+            .IsUnique();
+
+        modelBuilder.Entity<PlanStepStatus>()
+            .HasKey(x => new { x.PlanStepId, x.UserId });
+
+        modelBuilder.Entity<PlanStepStatus>()
+            .HasOne(x => x.PlanStep)
+            .WithMany() // or .WithMany(p => p.Statuses)
+            .HasForeignKey(x => x.PlanStepId);
     }
 }

@@ -11,6 +11,7 @@ using Emotions.Application.Pricing;
 using Emotions.Infrastructure.Auth;
 using Emotions.Infrastructure.BackgroundJobs;
 using Emotions.Infrastructure.Data;
+using Emotions.Infrastructure.Options;
 using Emotions.Infrastructure.Queue;
 using Emotions.Infrastructure.Security;
 using Emotions.Infrastructure.Services;
@@ -62,8 +63,16 @@ builder.Services.AddSingleton<ITextProtector, NoOpTextProtector>();
 builder.Services.AddScoped<ISummarizationService, OpenAISummarizationService>();
 builder.Services.AddScoped<ITranscriptionService, OpenAIWhisperTranscriptionService>();
 
-builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection("Storage"));
-builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<StorageOptions>>().Value);
+builder.Services.AddSingleton<ILiveTranscriptionService, SimpleTranscriptionService>();
+builder.Services.AddSingleton<ILiveTherapyOrchestrator, DefaultLiveTherapyOrchestrator>();
+
+
+builder.Services.Configure<AzureSpeechOptions>(
+    builder.Configuration.GetSection("AzureSpeech"));
+
+builder.Services.AddSingleton<ILiveTranscriptionService, AzureStreamingTranscriptionService>();
+
+builder.Services.AddSingleton<ILiveTherapyOrchestrator, DefaultLiveTherapyOrchestrator>();
 
 
 // ---------- Auth0 (OIDC) ----------
@@ -268,6 +277,22 @@ builder.Services.AddHttpClient();
 //         return new LocalFileAttachmentReader(root: storage.LocalRoot ?? "./data/blobs");
 //     }
 // });
+
+builder.Services
+    .AddOptions<StorageOptions>()
+    .Bind(builder.Configuration.GetSection("Storage"))
+    .Validate(o =>
+            (!string.IsNullOrWhiteSpace(o.Provider)) &&
+            (
+                o.Provider.Equals("Local", StringComparison.OrdinalIgnoreCase)
+                    ? !string.IsNullOrWhiteSpace(o.LocalRoot)
+                    : (!string.IsNullOrWhiteSpace(o.AzureConnectionString) &&
+                       !string.IsNullOrWhiteSpace(o.AzureContainer))
+            ),
+        "Invalid Storage configuration")
+    .ValidateOnStart();
+
+builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<StorageOptions>>().Value);
 
 builder.Services.AddSingleton<IAttachmentReader>(sp =>
 {
